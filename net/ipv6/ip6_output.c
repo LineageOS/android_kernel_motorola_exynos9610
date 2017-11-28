@@ -1273,13 +1273,14 @@ static int ip6_setup_cork(struct sock *sk, struct inet_cork_full *cork,
 		      READ_ONCE(rt->dst.dev->mtu) : dst_mtu(&rt->dst);
 	else
 		mtu = np->pmtudisc >= IPV6_PMTUDISC_PROBE ?
-		      READ_ONCE(rt->dst.dev->mtu) : dst_mtu(rt->dst.path);
+		      READ_ONCE(rt->dst.dev->mtu) : dst_mtu(xfrm_dst_path(&rt->dst));
 	if (np->frag_size < mtu) {
 		if (np->frag_size)
 			mtu = np->frag_size;
 	}
 	cork->base.fragsize = mtu;
-	if (dst_allfrag(rt->dst.path))
+	if (dst_allfrag(xfrm_dst_path(&rt->dst)))
+
 		cork->base.flags |= IPCORK_ALLFRAG;
 	cork->base.length = 0;
 
