@@ -94,6 +94,10 @@ static enum power_supply_property s2mu00x_battery_props[] = {
 
 static enum power_supply_property s2mu00x_power_props[] = {
 	POWER_SUPPLY_PROP_ONLINE,
+#if defined(CONFIG_CHARGER_S2MU106)
+	POWER_SUPPLY_PROP_VOLTAGE_MAX,
+#endif
+	POWER_SUPPLY_PROP_CURRENT_MAX,
 };
 
 //moto
@@ -1114,10 +1118,37 @@ static int s2mu00x_usb_get_property(struct power_supply *psy,
 		enum power_supply_property psp,
 		union power_supply_propval *val)
 {
-	struct s2mu00x_battery_info *battery =  power_supply_get_drvdata(psy);
+	struct s2mu00x_battery_info *battery = power_supply_get_drvdata(psy);
+#if defined(CONFIG_CHARGER_S2MU106)
+	struct power_supply *ps;
+	union power_supply_propval value;
+	int ret;
+#endif
 
-	if (psp != POWER_SUPPLY_PROP_ONLINE)
+	switch (psp) {
+	case POWER_SUPPLY_PROP_ONLINE:
+		break;
+#if defined(CONFIG_CHARGER_S2MU106)
+	case POWER_SUPPLY_PROP_VOLTAGE_MAX:
+		/* mV -> uV */
+		ps = power_supply_get_by_name(battery->pdata->charger_name);
+		if (!ps) {
+			return -EINVAL;
+		}
+		ret = power_supply_get_property(ps, POWER_SUPPLY_PROP_VOLTAGE_MAX, &value);
+		if (ret < 0) {
+			return -EINVAL;
+		}
+		val->intval = value.intval * 1000;
+		return 0;
+#endif
+	case POWER_SUPPLY_PROP_CURRENT_MAX:
+		/* mA -> uA */
+		val->intval = battery->pdata->charging_current[battery->cable_type].input_current_limit * 1000;
+		return 0;
+	default:
 		return -EINVAL;
+	}
 
 	/* Set enable=1 only if the USB charger is connected */
 	switch (battery->cable_type) {
@@ -1142,10 +1173,37 @@ static int s2mu00x_ac_get_property(struct power_supply *psy,
 		enum power_supply_property psp,
 		union power_supply_propval *val)
 {
-	struct s2mu00x_battery_info *battery =  power_supply_get_drvdata(psy);
+	struct s2mu00x_battery_info *battery = power_supply_get_drvdata(psy);
+#if defined(CONFIG_CHARGER_S2MU106)
+	struct power_supply *ps;
+	union power_supply_propval value;
+	int ret;
+#endif
 
-	if (psp != POWER_SUPPLY_PROP_ONLINE)
+	switch (psp) {
+	case POWER_SUPPLY_PROP_ONLINE:
+		break;
+#if defined(CONFIG_CHARGER_S2MU106)
+	case POWER_SUPPLY_PROP_VOLTAGE_MAX:
+		/* mV -> uV */
+		ps = power_supply_get_by_name(battery->pdata->charger_name);
+		if (!ps) {
+			return -EINVAL;
+		}
+		ret = power_supply_get_property(ps, POWER_SUPPLY_PROP_VOLTAGE_MAX, &value);
+		if (ret < 0) {
+			return -EINVAL;
+		}
+		val->intval = value.intval * 1000;
+		return 0;
+#endif
+	case POWER_SUPPLY_PROP_CURRENT_MAX:
+		/* mA -> uA */
+		val->intval = battery->pdata->charging_current[battery->cable_type].input_current_limit * 1000;
+		return 0;
+	default:
 		return -EINVAL;
+	}
 
 	/* Set enable=1 only if the AC charger is connected */
 	switch (battery->cable_type) {
