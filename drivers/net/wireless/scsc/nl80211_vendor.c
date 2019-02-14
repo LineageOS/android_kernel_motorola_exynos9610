@@ -2593,7 +2593,7 @@ static int slsi_lls_fill(struct slsi_dev *sdev, u8 **src_buf)
 	return buf_len;
 }
 
-static int slsi_lls_get_stats(struct wiphy *wiphy, struct wireless_dev *wdev, const void *data, int len)
+static int __maybe_unused slsi_lls_get_stats(struct wiphy *wiphy, struct wireless_dev *wdev, const void *data, int len)
 {
 	struct slsi_dev        *sdev = SDEV_FROM_WIPHY(wiphy);
 	int                    ret;
@@ -5297,6 +5297,7 @@ static const struct wiphy_vendor_command     slsi_vendor_cmd[] = {
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV | WIPHY_VENDOR_CMD_NEED_NETDEV,
 		.doit = slsi_lls_set_stats
 	},
+#if 0
 	{
 		{
 			.vendor_id = OUI_GOOGLE,
@@ -5305,6 +5306,7 @@ static const struct wiphy_vendor_command     slsi_vendor_cmd[] = {
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV | WIPHY_VENDOR_CMD_NEED_NETDEV,
 		.doit = slsi_lls_get_stats
 	},
+#endif
 	{
 		{
 			.vendor_id = OUI_GOOGLE,
