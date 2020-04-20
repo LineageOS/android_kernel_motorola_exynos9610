@@ -21,3 +21,5 @@ obj-$(CONFIG_SEC_REBOOT)	+= sec_reboot.o
 obj-$(CONFIG_SEC_MISC)		+= sec_misc.o
 # Samsung sec sysfs Feature
 obj-$(CONFIG_SEC_SYSFS)		+= sec_sysfs.o
+
+obj-$(CONFIG_SEC_DEBUG_LAST_KMSG)		+= sec_debug_last_kmsg.o

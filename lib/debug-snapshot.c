@@ -36,6 +36,10 @@
 #include <soc/samsung/cal-if.h>
 #endif
 
+#ifdef CONFIG_SEC_DEBUG_LAST_KMSG
+#include <linux/sec_debug.h>
+#endif
+
 extern void register_hook_logbuf(void (*)(const char *, size_t));
 extern void register_hook_logger(void (*)(const char *, const char *, size_t));
 
@@ -221,8 +225,12 @@ static inline void dbg_snapshot_hook_logbuf(const char *buf, size_t size)
 	if (likely(dss_base.enabled && item->entry.enabled)) {
 		size_t last_buf;
 
-		if (dbg_snapshot_check_eob(item, size))
+		if (dbg_snapshot_check_eob(item, size)) {
 			item->curr_ptr = item->head_ptr;
+#ifdef CONFIG_SEC_DEBUG_LAST_KMSG
+			*((unsigned long long *)(item->head_ptr + item->entry.size - (size_t)0x08)) = SEC_LKMSG_MAGICKEY;
+#endif
+		}
 
 		memcpy(item->curr_ptr, buf, size);
 		item->curr_ptr += size;
@@ -706,6 +714,12 @@ static void __init dbg_snapshot_fixmap(void)
 
 	/* output the information of debug-snapshot */
 	dbg_snapshot_output();
+
+#ifdef CONFIG_SEC_DEBUG_LAST_KMSG
+	sec_debug_save_last_kmsg(dss_items[dss_desc.log_kernel_num].head_ptr,
+			dss_items[dss_desc.log_kernel_num].curr_ptr,
+			dss_items[dss_desc.log_kernel_num].entry.size);
+#endif
 }
 
 static int dbg_snapshot_init_dt_parse(struct device_node *np)

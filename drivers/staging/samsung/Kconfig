@@ -44,6 +44,12 @@ menuconfig SEC_DEBUG
 	  Samsung TN Ramdump Feature. Use INFORM3 and magic number at 0xc0000000.
 
 if SEC_DEBUG
+config SEC_DEBUG_LAST_KMSG
+	default n
+	bool "Enable /proc/last_kmsg support" if EMBEDDED
+	help
+	  This option enables /proc/last_kmsg support.
+
 config SEC_DEBUG_FUPLOAD_DUMP_MORE
 	bool "Dump more information at forced upload"
 	default n
@@ -209,13 +215,6 @@ config SEC_LOG_NONCACHED
 	  support non-cached kernel log in RAM dump and We don't need
 	  to concern cache flush status for analyzing sudden lockup
 	  issue.
-
-config SEC_LOG_LAST_KMSG
-	default n
-	bool "Enable /proc/last_kmsg support" if EMBEDDED
-	depends on SEC_LOG
-	help
-	  This option enables /proc/last_kmsg support.
 
 config SEC_AVC_LOG
 	default n
