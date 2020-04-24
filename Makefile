@@ -145,7 +145,6 @@ $(filter-out _all sub-make $(CURDIR)/Makefile, $(MAKECMDGOALS)) _all: sub-make
 sub-make:
 	$(Q)$(MAKE) -C $(KBUILD_OUTPUT) KBUILD_SRC=$(CURDIR) \
 	-f $(CURDIR)/Makefile $(filter-out _all sub-make,$(MAKECMDGOALS))
-	@lib/libdss-build.sh $(KBUILD_OUTPUT)/
 
 # Leave processing to above invocation of make
 skip-makefile := 1
@@ -639,12 +638,7 @@ endif
 # command line.
 # This allow a user to issue only 'make' to build a kernel including modules
 # Defaults to vmlinux, but the arch makefile usually adds further targets
-ifneq ($(O),)
 all: vmlinux
-else
-all: vmlinux
-	@lib/libdss-build.sh
-endif
 
 KBUILD_CFLAGS	+= $(call cc-option,-fno-PIE)
 KBUILD_AFLAGS	+= $(call cc-option,-fno-PIE)
