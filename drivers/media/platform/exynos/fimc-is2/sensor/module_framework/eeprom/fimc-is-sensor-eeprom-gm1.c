@@ -34,6 +34,7 @@ int fimc_is_eeprom_gm1_check_all_crc(struct v4l2_subdev *subdev)
 	struct fimc_is_module_enum *module;
 	struct fimc_is_eeprom *eeprom = NULL;
 	struct fimc_is_device_sensor *sensor = NULL;
+	int i;
 
 	FIMC_BUG(!subdev);
 
@@ -61,7 +62,7 @@ int fimc_is_eeprom_gm1_check_all_crc(struct v4l2_subdev *subdev)
 				EEPROM_ADD_CRC_FST, EEPROM_DATA_SIZE, 0xff);
 
         /*Set all cal_status to ERROR if Address cal data invalid*/
-		for (int i = 0; i < CAMERA_CRC_INDEX_MAX; i++)
+		for (i = 0; i < CAMERA_CRC_INDEX_MAX; i++)
 		    sensor->cal_status[i] = CRC_ERROR;
 		return ret;
 	} else
