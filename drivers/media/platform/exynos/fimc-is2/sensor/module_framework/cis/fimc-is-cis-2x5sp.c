@@ -57,6 +57,7 @@ static const struct sensor_pll_info_compact **sensor_2x5sp_pllinfos;
 static u32 sensor_2x5sp_max_setfile_num;
 
 static const u32 *sensor_2x5sp_setfile_throttling;
+static u32 sensor_2x5sp_setfile_throttling_size;
 static const struct sensor_pll_info_compact *sensor_2x5sp_pllinfo_throttling;
 
 static void sensor_2x5sp_cis_data_calculation(const struct sensor_pll_info_compact *pll_info_compact, cis_shared_data *cis_data)
@@ -727,7 +728,7 @@ int sensor_2x5sp_cis_mode_change_throttling(struct v4l2_subdev *subdev)
 	I2C_MUTEX_LOCK(cis->i2c_lock);
 
 	ret = sensor_cis_set_registers(subdev, sensor_2x5sp_setfile_throttling,
-				sizeof(sensor_2x5sp_setfile_throttling) / sizeof(sensor_2x5sp_setfile_throttling[0]));
+				sensor_2x5sp_setfile_throttling_size);
 	if (ret < 0) {
 		err("sensor_gm1sp_set_registers fail!!");
 		goto p_err;
@@ -2502,6 +2503,7 @@ static int cis_2x5sp_probe(struct i2c_client *client,
 
 		/* throttling setting */
 		sensor_2x5sp_setfile_throttling = sensor_2x5sp_setfile_B_2880x2160_15fps;
+		sensor_2x5sp_setfile_throttling_size = ARRAY_SIZE(sensor_2x5sp_setfile_B_2880x2160_15fps);
 		sensor_2x5sp_pllinfo_throttling = &sensor_2x5sp_pllinfo_B_2880x2160_15fps;
 	} else {
 		err("%s setfile index out of bound, take default (setfile_A)", __func__);
