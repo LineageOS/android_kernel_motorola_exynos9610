@@ -65,6 +65,8 @@ struct wpan_dev;
 struct mpls_dev;
 /* UDP Tunnel offloads */
 struct udp_tunnel_info;
+struct udp_tunnel_nic_info;
+struct udp_tunnel_nic;
 struct bpf_prog;
 struct xdp_buff;
 
@@ -1672,6 +1674,10 @@ enum netdev_priv_flags {
  *				that follow this device when it is moved
  *				to another network namespace.
  *
+ *	@udp_tunnel_nic_info:	static structure describing the UDP tunnel
+ *				offload capabilities of the device
+ *	@udp_tunnel_nic:	UDP tunnel offload state
+ *
  *	FIXME: cleanup struct net_device such that network protocol info
  *	moves out.
  */
@@ -1954,6 +1960,8 @@ struct net_device {
 
 	struct list_head	net_notifier_list;
 
+	const struct udp_tunnel_nic_info	*udp_tunnel_nic_info;
+	struct udp_tunnel_nic	*udp_tunnel_nic;
 };
 #define to_net_dev(d) container_of(d, struct net_device, dev)
 
