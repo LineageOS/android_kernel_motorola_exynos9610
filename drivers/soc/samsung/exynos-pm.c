@@ -396,9 +396,6 @@ static int exynos_pm_enter(suspend_state_t state)
 				EXYNOS_PM_PREFIX, post_mif - prev_mif, post_mif);
 	}
 
-	pr_info("%s: MIF_UP history: \n", EXYNOS_PM_PREFIX);
-	acpm_get_inform();
-
 	return pm_info->is_early_wakeup;
 }
 
