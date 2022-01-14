@@ -6368,7 +6368,9 @@ void slsi_subsystem_reset(struct work_struct *work)
 			sdev->mib[0].mib_file_name = slsi_mib_file;
 			sdev->mib[1].mib_file_name = slsi_mib_file2;
 		}
+#ifdef CONFIG_SCSC_LOG_COLLECTION
 		sdev->collect_mib.num_files = 0;
+#endif
 		/* Place MIB files in shared memory */
 		for (i = 0; i < SLSI_WLAN_MAX_MIB_FILE; i++) {
 			err = slsi_mib_open_file(sdev, &sdev->mib[i], &fw[i]);
@@ -6513,7 +6515,9 @@ void slsi_chip_recovery(struct work_struct *work)
 			sdev->mib[0].mib_file_name = slsi_mib_file;
 			sdev->mib[1].mib_file_name = slsi_mib_file2;
 		}
+#ifdef CONFIG_SCSC_LOG_COLLECTION
 		sdev->collect_mib.num_files = 0;
+#endif
 		/* Place MIB files in shared memory */
 		for (i = 0; i < SLSI_WLAN_MAX_MIB_FILE; i++) {
 			err = slsi_mib_open_file(sdev, &sdev->mib[i], &fw[i]);
