@@ -746,7 +746,7 @@ config REGULATOR_S2MPU09
 	 including Dual-Phase Buck converter, Buck-Boost converter, various LDOs.
 
 config REGULATOR_S2MPU09_BUCK8_1V35
-	tristate "    Set S2MPU09 BUCK8 output 1.35V"
+	tristate "Set S2MPU09 BUCK8 output 1.35V"
 	depends on REGULATOR_S2MPU09
 	default n
 	help
