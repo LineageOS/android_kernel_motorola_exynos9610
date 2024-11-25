@@ -1,6 +1,23 @@
 {
   "comments": [
     {
+      "unresolved": false,
+      "key": {
+        "uuid": "076f2489_50000f60",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 1
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 16185
+      },
+      "writtenOn": "2024-11-25T22:18:05Z",
+      "side": 1,
+      "message": "https://review.lineageos.org/c/LineageOS/android_kernel_motorola_exynos9610/+/409698",
+      "revId": "b3c994df0167cb02ee5f151598add5650b6da5d2",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
       "unresolved": true,
       "key": {
         "uuid": "17cebe38_c12d8f67",
