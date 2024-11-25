@@ -16,6 +16,24 @@
       "message": "Aren\u0027t several if not most things here redefined below in this file?",
       "revId": "b3c994df0167cb02ee5f151598add5650b6da5d2",
       "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "2a321574_114c8955",
+        "filename": "include/uapi/linux/videodev2_exynos_media.h",
+        "patchSetId": 1
+      },
+      "lineNbr": 34,
+      "author": {
+        "id": 16185
+      },
+      "writtenOn": "2024-11-25T22:01:37Z",
+      "side": 1,
+      "message": "Yes, I just pulled the whole block. I can thin it down.",
+      "parentUuid": "17cebe38_c12d8f67",
+      "revId": "b3c994df0167cb02ee5f151598add5650b6da5d2",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
     }
   ],
   "submitRequirementResults": []
