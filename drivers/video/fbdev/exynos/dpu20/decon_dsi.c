@@ -568,6 +568,41 @@ void decon_destroy_esd_thread(struct decon_device *decon)
 }
 #endif /* CONFIG_EXYNOS_READ_ESD_SOLUTION */
 
+static ssize_t decon_show_idle_state(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct decon_device *decon = dev_get_drvdata(dev);
+	const char *state = "active";
+
+	if (decon_reg_get_idle_status(decon->id)) {
+		state = "idle";
+	}
+
+	return scnprintf(buf, PAGE_SIZE, "%s\n", state);
+}
+static DEVICE_ATTR(idle_state, S_IRUGO, decon_show_idle_state, NULL);
+
+int decon_create_idle_state(struct decon_device *decon)
+{
+	int ret = 0;
+
+	if (decon->id != 0)
+		return 0;
+
+	ret = device_create_file(decon->dev, &dev_attr_idle_state);
+	if (ret) {
+		decon_err("failed to create idle_state file\n");
+		return ret;
+	}
+
+	return ret;
+}
+
+void decon_destroy_idle_state(struct decon_device *decon)
+{
+	device_remove_file(decon->dev, &dev_attr_idle_state);
+}
+
 /*
  * Variable Descriptions
  *   dsc_en : comp_mode (0=No Comp, 1=DSC, 2=MIC, 3=LEGO)

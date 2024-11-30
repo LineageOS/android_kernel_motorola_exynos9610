@@ -1141,6 +1141,8 @@ int decon_create_vsync_thread(struct decon_device *decon);
 void decon_destroy_vsync_thread(struct decon_device *decon);
 int decon_create_esd_thread(struct decon_device *decon);
 void decon_destroy_esd_thread(struct decon_device *decon);
+int decon_create_idle_state(struct decon_device *decon);
+void decon_destroy_idle_state(struct decon_device *decon);
 int decon_create_psr_info(struct decon_device *decon);
 void decon_destroy_psr_info(struct decon_device *decon);
 

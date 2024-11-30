@@ -287,6 +287,7 @@ void decon_reg_set_partial_update(u32 id, enum decon_dsi_mode dsi_mode,
 		struct decon_lcd *lcd_info, bool in_slice[],
 		u32 partial_w, u32 partial_h);
 void decon_reg_set_mres(u32 id, struct decon_param *p);
+u32 decon_reg_get_idle_status(u32 id);
 
 /* For writeback configuration */
 void decon_reg_release_resource(u32 id, struct decon_mode_info *psr);

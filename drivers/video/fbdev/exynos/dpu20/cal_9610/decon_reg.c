@@ -64,7 +64,7 @@ static void decon_reg_per_frame_off(u32 id)
 	decon_write_mask(id, GLOBAL_CONTROL, 0, GLOBAL_CONTROL_DECON_EN_F);
 }
 
-static u32 decon_reg_get_idle_status(u32 id)
+u32 decon_reg_get_idle_status(u32 id)
 {
 	u32 val;
 

@@ -4101,6 +4101,10 @@ static int decon_probe(struct platform_device *pdev)
 		goto err_vsync;
 #endif
 
+	ret = decon_create_idle_state(decon);
+	if (ret)
+		goto err_idle_state;
+
 	ret = decon_create_psr_info(decon);
 	if (ret)
 		goto err_psr;
@@ -4187,6 +4191,8 @@ err_win:
 err_subdev:
 	decon_destroy_debugfs(decon);
 err_pinctrl:
+	decon_destroy_idle_state(decon);
+err_idle_state:
 	decon_destroy_psr_info(decon);
 err_psr:
 	decon_destroy_vsync_thread(decon);
