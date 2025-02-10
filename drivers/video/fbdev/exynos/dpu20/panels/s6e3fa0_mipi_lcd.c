@@ -458,7 +458,7 @@ static int s6e3fa0_probe(struct dsim_device *dsim)
 	struct panel_device *panel;
 	static unsigned int panel_no;
 
-	dsim->bd = backlight_device_register("backlight_0", dsim->dev,
+	dsim->bd = backlight_device_register("backlight", dsim->dev,
 		NULL, &s6e3fa0_backlight_ops, NULL);
 	if (IS_ERR(dsim->bd))
 		printk(KERN_ALERT "failed to register backlight device!\n");

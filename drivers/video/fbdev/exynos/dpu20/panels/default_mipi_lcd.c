@@ -172,7 +172,7 @@ static int default_probe(struct dsim_device *dsim)
 
 	dsim_base = dsim;
 
-	bd = backlight_device_register("backlight_0", NULL,
+	bd = backlight_device_register("backlight", NULL,
 			NULL, &default_backlight_ops, NULL);
 	if (IS_ERR(bd))
 		pr_err("failed to register backlight device!\n");

@@ -453,7 +453,7 @@ static int hix83112a_probe(struct dsim_device *dsim)
 
 	dsim_base = dsim;
 
-	bd = backlight_device_register("backlight_0", NULL,
+	bd = backlight_device_register("backlight", NULL,
 		NULL, &hix83112a_backlight_ops, NULL);
 	if (IS_ERR(bd))
 		pr_err("failed to register backlight device!\n");
