@@ -34,12 +34,8 @@
 #endif
 
 /* Look for this file in <dir>/etc/wifi */
-#ifdef CONFIG_ANDROID
-#define MX140_FW_DETECT "mx"
-#else
 /* Linux host vfs_stat() doesn't find mx* with "mx" */
 #define MX140_FW_DETECT "mx140.bin"
-#endif
 
 /* Paths for vendor utilities, used when CONFIG_SCSC_CORE_FW_LOCATION_AUTO=n */
 #define MX140_EXE_DIR_VENDOR		"/vendor/bin"    /* Oreo */
