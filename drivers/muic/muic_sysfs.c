@@ -466,7 +466,7 @@ static ssize_t muic_sysfs_set_afc_disable(struct device *dev,
 		pr_err("%s:set_param failed - %02x:%02x(%d)\n",
 			__func__, param_val, curr_val, ret);
 		pdata->afc_disable = curr_val;
-		return ret;
+		return count;
 	}
 #else
 	pr_err("%s:set_param is NOT supported! - %02x:%02x(%d)\n",
