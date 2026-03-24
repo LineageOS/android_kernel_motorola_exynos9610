@@ -16,5 +16,5 @@ obj-$(CONFIG_FIMC_IS_V3_11_0) += fimc-is-subdev-ixp.o
 obj-$(CONFIG_FIMC_IS_V3_11_0) += fimc-is-subdev-scp.o
 obj-$(CONFIG_FIMC_IS_V3_11_0) += fimc-is-subdev-vra.o
 
-EXTRA_CFLAGS += -Idrivers/media/platform/exynos/fimc-is2
-EXTRA_CFLAGS += -Idrivers/media/platform/exynos/fimc-is2/include
+EXTRA_CFLAGS += -I $(srctree)/drivers/media/platform/exynos/fimc-is2
+EXTRA_CFLAGS += -I $(srctree)/drivers/media/platform/exynos/fimc-is2/include

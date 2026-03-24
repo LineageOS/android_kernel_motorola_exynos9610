@@ -14,9 +14,9 @@ obj-$(CONFIG_CAMERA_ACT_LC898217_OBJ) += fimc-is-actuator-lc898217.o
 obj-$(CONFIG_CAMERA_ACT_ZC533_OBJ) += fimc-is-actuator-zc533.o
 obj-$(CONFIG_CAMERA_ACT_ZC569_OBJ) += fimc-is-actuator-zc569.o
 
-EXTRA_CFLAGS += -Idrivers/media/platform/exynos/fimc-is2
-EXTRA_CFLAGS += -Idrivers/media/platform/exynos/fimc-is2/include
-EXTRA_CFLAGS += -Idrivers/media/platform/exynos/fimc-is2/vendor
-EXTRA_CFLAGS += -Idrivers/media/platform/exynos/fimc-is2/hardware/api
-EXTRA_CFLAGS += -Idrivers/media/platform/exynos/fimc-is2/sensor
-EXTRA_CFLAGS += -Idrivers/media/platform/exynos/fimc-is2/sensor/module_framework
+EXTRA_CFLAGS += -I $(srctree)/drivers/media/platform/exynos/fimc-is2
+EXTRA_CFLAGS += -I $(srctree)/drivers/media/platform/exynos/fimc-is2/include
+EXTRA_CFLAGS += -I $(srctree)/drivers/media/platform/exynos/fimc-is2/vendor
+EXTRA_CFLAGS += -I $(srctree)/drivers/media/platform/exynos/fimc-is2/hardware/api
+EXTRA_CFLAGS += -I $(srctree)/drivers/media/platform/exynos/fimc-is2/sensor
+EXTRA_CFLAGS += -I $(srctree)/drivers/media/platform/exynos/fimc-is2/sensor/module_framework

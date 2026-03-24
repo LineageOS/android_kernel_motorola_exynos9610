@@ -38,4 +38,4 @@ obj-$(CONFIG_RADIO_S5E9610) += s610/
 
 shark2-objs := radio-shark2.o radio-tea5777.o
 
-ccflags-y += -Isound
+ccflags-y += -I $(srctree)/sound

@@ -24,5 +24,5 @@ obj-$(CONFIG_FIMC_IS_V5_15_0) += fimc-is-subdev-sensor_vc2.o
 obj-$(CONFIG_FIMC_IS_V5_15_0) += fimc-is-subdev-sensor_vc3.o
 endif
 
-EXTRA_CFLAGS += -Idrivers/media/platform/exynos/fimc-is2
-EXTRA_CFLAGS += -Idrivers/media/platform/exynos/fimc-is2/include
+EXTRA_CFLAGS += -I $(srctree)/drivers/media/platform/exynos/fimc-is2
+EXTRA_CFLAGS += -I $(srctree)/drivers/media/platform/exynos/fimc-is2/include

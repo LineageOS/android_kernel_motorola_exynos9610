@@ -25,4 +25,4 @@ obj-y					+= vipx-util.o
 
 obj-$(CONFIG_EXYNOS_VIPX_PLATFORM)	+= platform/
 
-ccflags-y += -Idrivers/vision/vipx
+ccflags-y += -I $(srctree)/drivers/vision/vipx

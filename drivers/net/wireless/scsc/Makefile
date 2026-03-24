@@ -93,7 +93,7 @@ endif
 # Include
 # ---------------------------------------------------------------------------
 # TODO: This is only required because scsc_wifilogger is in the wrong driver directory
-ccflags-y += -Idrivers/misc/samsung/scsc
+ccflags-y += -I $(srctree)/drivers/misc/samsung/scsc
 
 # ----------------------------------------------------------------------------
 # Wlan configuration

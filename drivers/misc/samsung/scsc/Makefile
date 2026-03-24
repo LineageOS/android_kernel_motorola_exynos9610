@@ -10,7 +10,7 @@ clean-files := *.o *.ko
 
 ifneq ($(CONFIG_SCSC_CORE),n)
 
-ccflags-y +=  -Iinclude/scsc
+ccflags-y +=  -I $(srctree)/include/scsc
 ccflags-y += $(CONFIG_SAMSUNG_MAXWELL_EXTRA)
 
 obj-$(CONFIG_SCSC_LOGRING) += scsc_logring.o

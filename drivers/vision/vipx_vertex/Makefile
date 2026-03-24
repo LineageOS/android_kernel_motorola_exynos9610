@@ -23,4 +23,4 @@ obj-y						+= vertex-util.o
 
 obj-$(CONFIG_EXYNOS_VIPX_VERTEX_PLATFORM)	+= platform/
 
-ccflags-y += -Idrivers/vision/vipx_vertex
+ccflags-y += -I $(srctree)/drivers/vision/vipx_vertex

@@ -42,8 +42,8 @@ obj-$(CONFIG_CAMERA_CIS_12A10_OBJ) += fimc-is-cis-12a10.o
 obj-$(CONFIG_CAMERA_CIS_12A10FF_OBJ) += fimc-is-cis-12a10ff.o
 obj-$(CONFIG_CAMERA_CIS_16885C_OBJ) += fimc-is-cis-16885c.o
 
-EXTRA_CFLAGS += -Idrivers/media/platform/exynos/fimc-is2
-EXTRA_CFLAGS += -Idrivers/media/platform/exynos/fimc-is2/include
-EXTRA_CFLAGS += -Idrivers/media/platform/exynos/fimc-is2/vendor
-EXTRA_CFLAGS += -Idrivers/media/platform/exynos/fimc-is2/sensor/module_framework
-EXTRA_CFLAGS += -Idrivers/media/platform/exynos/fimc-is2/sensor/
+EXTRA_CFLAGS += -I $(srctree)/drivers/media/platform/exynos/fimc-is2
+EXTRA_CFLAGS += -I $(srctree)/drivers/media/platform/exynos/fimc-is2/include
+EXTRA_CFLAGS += -I $(srctree)/drivers/media/platform/exynos/fimc-is2/vendor
+EXTRA_CFLAGS += -I $(srctree)/drivers/media/platform/exynos/fimc-is2/sensor/module_framework
+EXTRA_CFLAGS += -I $(srctree)/drivers/media/platform/exynos/fimc-is2/sensor/
