@@ -195,7 +195,7 @@ extern void fscrypt_enqueue_decrypt_bio(struct fscrypt_ctx *ctx,
 extern void fscrypt_pullback_bio_page(struct page **, bool);
 extern int fscrypt_zeroout_range(const struct inode *, pgoff_t, sector_t,
 				 unsigned int);
-void fscrypt_set_bio(const struct inode *inode, struct bio *bio);
+
 /* hooks.c */
 extern int fscrypt_file_open(struct inode *inode, struct file *filp);
 extern int __fscrypt_prepare_link(struct inode *inode, struct inode *dir);
