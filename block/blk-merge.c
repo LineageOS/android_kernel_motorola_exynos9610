@@ -691,9 +691,6 @@ static struct request *attempt_merge(struct request_queue *q,
 	    !blk_write_same_mergeable(req->bio, next->bio))
 		return NULL;
 
-	if (!blk_crypt_mergeable(req->bio, next->bio))
-		return NULL;
-
 	/*
 	 * Don't allow merge of different write hints, or for a hint with
 	 * non-hint IO.
@@ -825,8 +822,6 @@ bool blk_rq_merge_ok(struct request *rq, struct bio *bio)
 	    !blk_write_same_mergeable(rq->bio, bio))
 		return false;
 
-	if (!blk_crypt_mergeable(rq->bio, bio))
-		return false;
 	/*
 	 * Don't allow merge of different write hints, or for a hint with
 	 * non-hint IO.
