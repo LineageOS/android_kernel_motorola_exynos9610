@@ -18,11 +18,9 @@ struct diskcipher_alg;
 struct crypto_diskcipher {
 	u32 algo;
 	unsigned int ivsize;
-#ifdef USE_FREE_REQ
 	/* for crypto_free_req_diskcipher */
 	unsigned long req_jiffies;
 	struct list_head node;
-#endif
 	atomic_t status;
 	struct crypto_tfm base;
 };
@@ -50,7 +48,7 @@ struct diskcipher_test_request {
  * And pass the crypto information to disk host device via bio.
  * Crypt operation executes on inline crypto on disk host device.
  */
-#ifdef USE_FREE_REQ
+
 struct diskcipher_freectrl {
 	spinlock_t freelist_lock;
 	struct list_head freelist;
@@ -58,7 +56,6 @@ struct diskcipher_freectrl {
 	atomic_t freewq_active;
 	u32 max_io_ms;
 };
-#endif
 
 struct diskcipher_alg {
 	int (*setkey)(struct crypto_tfm *tfm, const char *key, u32 keylen,
@@ -70,10 +67,8 @@ struct diskcipher_alg {
 	int (*do_crypt)(struct crypto_tfm *tfm,
 		struct diskcipher_test_request *req);
 #endif
-#ifdef USE_FREE_REQ
-	struct diskcipher_freectrl freectrl;
-#endif
 	struct crypto_alg base;
+	struct diskcipher_freectrl freectrl;
 };
 
 static inline unsigned int crypto_diskcipher_ivsize(struct crypto_diskcipher *tfm)
