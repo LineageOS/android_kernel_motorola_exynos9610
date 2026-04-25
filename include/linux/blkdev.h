@@ -868,10 +868,11 @@ static inline unsigned int blk_queue_depth(struct request_queue *q)
 
 static inline bool blk_crypt_mergeable(struct bio *a, struct bio *b)
 {
-	if (bio_has_crypt(a) == bio_has_crypt(b))
-		return true;
+	if (bio_has_crypt(a) && bio_has_crypt(b))
+		if (a->bi_aux_private != b->bi_aux_private)
+			return false;
 
-	return false;
+	return true;
 }
 
 /*
