@@ -305,7 +305,7 @@ int ext4_mpage_readpages(struct address_space *mapping,
 			bio_set_op_attrs(bio, REQ_OP_READ,
 				ctx ? REQ_NOENCRYPT : 0);
 			if (ext4_encrypted_inode(inode) && S_ISREG(inode->i_mode)) {
-				fscrypt_set_bio(inode, bio, 0);
+				fscrypt_set_bio(inode, bio);
 				crypto_diskcipher_debug(FS_READP, bio->bi_opf);
 			}
 		}
