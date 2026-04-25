@@ -20,7 +20,6 @@
 #include <linux/dcache.h>
 #include <crypto/skcipher.h>
 #include <uapi/linux/fs.h>
-#include <crypto/diskcipher.h>
 
 #define FS_CRYPTO_BLOCK_SIZE		16
 

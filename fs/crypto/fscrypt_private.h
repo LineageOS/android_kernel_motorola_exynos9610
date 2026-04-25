@@ -15,6 +15,7 @@
 #define __FS_HAS_ENCRYPTION 1
 #include <linux/fscrypt.h>
 #include <crypto/hash.h>
+#include <crypto/diskcipher.h>
 
 /* Encryption parameters */
 #define FS_IV_SIZE			16
@@ -127,7 +128,7 @@ extern bool fscrypt_fname_encrypted_size(const struct inode *inode,
 /* keyinfo.c */
 extern void __exit fscrypt_essiv_cleanup(void);
 
-static inline int __fscrypt_disk_encrypted(const struct inode *inode)
+static inline int fscrypt_disk_encrypted(const struct inode *inode)
 {
 #if IS_ENABLED(CONFIG_FS_ENCRYPTION)
 #if IS_ENABLED(CONFIG_CRYPTO_DISKCIPHER)

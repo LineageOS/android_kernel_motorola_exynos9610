@@ -1215,19 +1215,10 @@ static int ext4_block_write_begin(struct page *page, loff_t pos, unsigned len,
 		if (!buffer_uptodate(bh) && !buffer_delay(bh) &&
 		    !buffer_unwritten(bh) &&
 		    (block_start < from || block_end > to)) {
-		    int bi_opf = 0;
-
-			if (S_ISREG(inode->i_mode) && ext4_encrypted_inode(inode)
-					&& fscrypt_has_encryption_key(inode)) {
-					bh->b_private = fscrypt_get_diskcipher(inode);
-					if (bh->b_private)
-						bi_opf = REQ_CRYPT | REQ_AUX_PRIV;
-				}
-			ll_rw_block(REQ_OP_READ, bi_opf, 1, &bh);
-			crypto_diskcipher_debug(FS_BLOCK_WRITE, bi_opf);
+			ll_rw_block(REQ_OP_READ, 0, 1, &bh);
 			*wait_bh++ = bh;
 			decrypt = ext4_encrypted_inode(inode) &&
-				S_ISREG(inode->i_mode) && !bh->b_private;
+				S_ISREG(inode->i_mode);
 		}
 	}
 	/*
@@ -3835,9 +3826,14 @@ static ssize_t ext4_direct_IO(struct kiocb *iocb, struct iov_iter *iter)
 	ssize_t ret;
 	int rw = iov_iter_rw(iter);
 
-	if (ext4_encrypted_inode(inode) && S_ISREG(inode->i_mode)
-			&& !fscrypt_disk_encrypted(inode))
+#if defined(CONFIG_EXT4_FS_ENCRYPTION) && !defined(CONFIG_CRYPTO_DISKCIPHER)
+	if (ext4_encrypted_inode(inode) && S_ISREG(inode->i_mode))
 		return 0;
+#elif defined(CONFIG_CRYPTO_DISKCIPHER)
+	if (ext4_encrypted_inode(inode) && !fscrypt_has_encryption_key(inode))
+		return 0;
+#endif
+
 	/*
 	 * If we are doing data journalling we don't support O_DIRECT
 	 */
@@ -4037,14 +4033,7 @@ static int __ext4_block_zero_page_range(handle_t *handle,
 
 	if (!buffer_uptodate(bh)) {
 		err = -EIO;
-		if (S_ISREG(inode->i_mode) && ext4_encrypted_inode(inode)
-				&& fscrypt_has_encryption_key(inode))
-			bh->b_private = fscrypt_get_diskcipher(inode);
-		if (bh->b_private)
-			ll_rw_block(REQ_OP_READ, REQ_CRYPT, 1, &bh);
-		else
-			ll_rw_block(REQ_OP_READ, 0, 1, &bh);
-
+		ll_rw_block(REQ_OP_READ, 0, 1, &bh);
 		wait_on_buffer(bh);
 		/* Uhhuh. Read error. Complain and punt. */
 		if (!buffer_uptodate(bh))
@@ -4054,9 +4043,7 @@ static int __ext4_block_zero_page_range(handle_t *handle,
 			/* We expect the key to be set. */
 			BUG_ON(!fscrypt_has_encryption_key(inode));
 			BUG_ON(blocksize != PAGE_SIZE);
-
-			if (!bh->b_private)
-				WARN_ON_ONCE(fscrypt_decrypt_page(page->mapping->host,
+			WARN_ON_ONCE(fscrypt_decrypt_page(page->mapping->host,
 						page, PAGE_SIZE, 0, page->index));
 		}
 	}
