@@ -351,6 +351,12 @@ struct page *ion_page_pool_alloc(struct ion_page_pool *pool, bool nozero);
 void ion_page_pool_free(struct ion_page_pool *pool, struct page *page);
 int ion_page_pool_total(struct ion_page_pool *pool, bool high);
 
+#ifdef CONFIG_ION_SYSTEM_HEAP
+long ion_page_pool_nr_pages(void);
+#else
+static inline long ion_page_pool_nr_pages(void) { return 0; }
+#endif
+
 /** ion_page_pool_shrink - shrinks the size of the memory cached in the pool
  * @pool:		the pool
  * @gfp_mask:		the memory type to reclaim

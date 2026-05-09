@@ -129,26 +129,27 @@ static const char *get_reason_str(enum kmsg_dump_reason reason)
 	}
 }
 
-bool pstore_cannot_block_path(enum kmsg_dump_reason reason)
+/*
+ * Should pstore_dump() wait for a concurrent pstore_dump()? If
+ * not, the current pstore_dump() will report a failure to dump
+ * and return.
+ */
+static bool pstore_cannot_wait(enum kmsg_dump_reason reason)
 {
-	/*
-	 * In case of NMI path, pstore shouldn't be blocked
-	 * regardless of reason.
-	 */
+	/* In NMI path, pstore shouldn't block regardless of reason. */
 	if (in_nmi())
 		return true;
 
 	switch (reason) {
 	/* In panic case, other cpus are stopped by smp_send_stop(). */
 	case KMSG_DUMP_PANIC:
-	/* Emergency restart shouldn't be blocked by spin lock. */
+	/* Emergency restart shouldn't be blocked. */
 	case KMSG_DUMP_EMERG:
 		return true;
 	default:
 		return false;
 	}
 }
-EXPORT_SYMBOL_GPL(pstore_cannot_block_path);
 
 #ifdef CONFIG_PSTORE_ZLIB_COMPRESS
 /* Derived from logfs_compress() */
@@ -501,23 +502,23 @@ static void pstore_dump(struct kmsg_dumper *dumper,
 	unsigned long	total = 0;
 	const char	*why;
 	unsigned int	part = 1;
-	unsigned long	flags = 0;
-	int		is_locked;
 	int		ret;
 
 	why = get_reason_str(reason);
 
-	if (pstore_cannot_block_path(reason)) {
-		is_locked = spin_trylock_irqsave(&psinfo->buf_lock, flags);
-		if (!is_locked) {
-			pr_err("pstore dump routine blocked in %s path, may corrupt error record\n"
-				       , in_nmi() ? "NMI" : why);
+	if (down_trylock(&psinfo->buf_lock)) {
+		/* Failed to acquire lock: give up if we cannot wait. */
+		if (pstore_cannot_wait(reason)) {
+			pr_err("dump skipped in %s path: may corrupt error record\n",
+				in_nmi() ? "NMI" : why);
 			return;
 		}
-	} else {
-		spin_lock_irqsave(&psinfo->buf_lock, flags);
-		is_locked = 1;
+		if (down_interruptible(&psinfo->buf_lock)) {
+			pr_err("could not grab semaphore?!\n");
+			return;
+		}
 	}
+
 	oopscount++;
 	while (total < kmsg_bytes) {
 		char *dst;
@@ -534,7 +535,7 @@ static void pstore_dump(struct kmsg_dumper *dumper,
 		record.part = part;
 		record.buf = psinfo->buf;
 
-		if (big_oops_buf && is_locked) {
+		if (big_oops_buf) {
 			dst = big_oops_buf;
 			dst_size = big_oops_buf_sz;
 		} else {
@@ -552,7 +553,7 @@ static void pstore_dump(struct kmsg_dumper *dumper,
 					  dst_size, &dump_size))
 			break;
 
-		if (big_oops_buf && is_locked) {
+		if (big_oops_buf) {
 			zipped_len = pstore_compress(dst, psinfo->buf,
 						header_size + dump_size,
 						psinfo->bufsize);
@@ -575,8 +576,8 @@ static void pstore_dump(struct kmsg_dumper *dumper,
 		total += record.size;
 		part++;
 	}
-	if (is_locked)
-		spin_unlock_irqrestore(&psinfo->buf_lock, flags);
+
+	up(&psinfo->buf_lock);
 }
 
 static struct kmsg_dumper pstore_dumper = {
@@ -612,7 +613,6 @@ int  pstore_annotate(const char *buf)
 		return -ENODEV;
 	}
 	while (buf < end) {
-		unsigned long flags;
 		int ret;
 		struct pstore_record record;
 
@@ -622,16 +622,20 @@ int  pstore_annotate(const char *buf)
 		if (cnt > psinfo->bufsize)
 			cnt = psinfo->bufsize;
 
-		if (oops_in_progress) {
-			if (!spin_trylock_irqsave(&psinfo->buf_lock, flags))
+		if (down_trylock(&psinfo->buf_lock)) {
+			if (in_nmi() || oops_in_progress) {
+				/* cannot sleep here */
 				break;
-		} else {
-			spin_lock_irqsave(&psinfo->buf_lock, flags);
+			}
+			if (down_interruptible(&psinfo->buf_lock)) {
+				pr_err("failed to acquire pstore lock\n");
+				break;
+			}
 		}
 		record.buf = (char *)buf;
 		record.size = cnt;
 		ret = psinfo->write(&record);
-		spin_unlock_irqrestore(&psinfo->buf_lock, flags);
+		up(&psinfo->buf_lock);
 
 		pr_debug("ret %d wrote bytes %d\n", ret, cnt);
 		buf += cnt;
@@ -646,31 +650,14 @@ EXPORT_SYMBOL_GPL(pstore_annotate);
 #ifdef CONFIG_PSTORE_CONSOLE
 static void pstore_console_write(struct console *con, const char *s, unsigned c)
 {
-	const char *e = s + c;
+	struct pstore_record record;
 
-	while (s < e) {
-		struct pstore_record record;
-		unsigned long flags;
+	pstore_record_init(&record, psinfo);
+	record.type = PSTORE_TYPE_CONSOLE;
 
-		pstore_record_init(&record, psinfo);
-		record.type = PSTORE_TYPE_CONSOLE;
-
-		if (c > psinfo->bufsize)
-			c = psinfo->bufsize;
-
-		if (oops_in_progress) {
-			if (!spin_trylock_irqsave(&psinfo->buf_lock, flags))
-				break;
-		} else {
-			spin_lock_irqsave(&psinfo->buf_lock, flags);
-		}
-		record.buf = (char *)s;
-		record.size = c;
-		psinfo->write(&record);
-		spin_unlock_irqrestore(&psinfo->buf_lock, flags);
-		s += c;
-		c = e - s;
-	}
+	record.buf = (char *)s;
+	record.size = c;
+	psinfo->write(&record);
 }
 
 static struct console pstore_console = {
@@ -762,6 +749,7 @@ int pstore_register(struct pstore_info *psi)
 		psi->write_user = pstore_write_user_compat;
 	psinfo = psi;
 	mutex_init(&psinfo->read_mutex);
+	sema_init(&psinfo->buf_lock, 1);
 	spin_unlock(&pstore_lock);
 
 	if (owner && !try_module_get(owner)) {
@@ -773,7 +761,8 @@ int pstore_register(struct pstore_info *psi)
 	// Disable pstore compression/decompression for ramdom decompression fail
 	// will enable it when DDR is stable
 #if 0
-	allocate_buf_for_compression();
+	if (psi->flags & PSTORE_FLAGS_DMESG)
+		allocate_buf_for_compression();
 #endif
 
 	if (pstore_is_mounted())

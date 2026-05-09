@@ -75,6 +75,7 @@
 #include <uapi/linux/android/binder.h>
 #include <uapi/linux/sched/types.h>
 #include "binder_alloc.h"
+#include "binder_internal.h"
 #include "binder_trace.h"
 
 static HLIST_HEAD(binder_deferred_list);
@@ -91,22 +92,8 @@ static struct dentry *binder_debugfs_dir_entry_root;
 static struct dentry *binder_debugfs_dir_entry_proc;
 static atomic_t binder_last_id;
 
-#define BINDER_DEBUG_ENTRY(name) \
-static int binder_##name##_open(struct inode *inode, struct file *file) \
-{ \
-	return single_open(file, binder_##name##_show, inode->i_private); \
-} \
-\
-static const struct file_operations binder_##name##_fops = { \
-	.owner = THIS_MODULE, \
-	.open = binder_##name##_open, \
-	.read = seq_read, \
-	.llseek = seq_lseek, \
-	.release = single_release, \
-}
-
-static int binder_proc_show(struct seq_file *m, void *unused);
-BINDER_DEBUG_ENTRY(proc);
+static int proc_show(struct seq_file *m, void *unused);
+DEFINE_SHOW_ATTRIBUTE(proc);
 
 /* This is only defined in include/asm-arm/sizes.h */
 #ifndef SZ_1K
@@ -140,7 +127,7 @@ static uint32_t binder_debug_mask = BINDER_DEBUG_USER_ERROR |
 	BINDER_DEBUG_FAILED_TRANSACTION | BINDER_DEBUG_DEAD_TRANSACTION;
 module_param_named(debug_mask, binder_debug_mask, uint, 0644);
 
-static char *binder_devices_param = CONFIG_ANDROID_BINDER_DEVICES;
+char *binder_devices_param = CONFIG_ANDROID_BINDER_DEVICES;
 module_param_named(devices, binder_devices_param, charp, 0444);
 
 static DECLARE_WAIT_QUEUE_HEAD(binder_user_error_wait);
@@ -214,30 +201,8 @@ static inline void binder_stats_created(enum binder_stat_types type)
 	atomic_inc(&binder_stats.obj_created[type]);
 }
 
-struct binder_transaction_log_entry {
-	int debug_id;
-	int debug_id_done;
-	int call_type;
-	int from_proc;
-	int from_thread;
-	int target_handle;
-	int to_proc;
-	int to_thread;
-	int to_node;
-	int data_size;
-	int offsets_size;
-	int return_error_line;
-	uint32_t return_error;
-	uint32_t return_error_param;
-	const char *context_name;
-};
-struct binder_transaction_log {
-	atomic_t cur;
-	bool full;
-	struct binder_transaction_log_entry entry[32];
-};
-static struct binder_transaction_log binder_transaction_log;
-static struct binder_transaction_log binder_transaction_log_failed;
+struct binder_transaction_log binder_transaction_log;
+struct binder_transaction_log binder_transaction_log_failed;
 
 static struct binder_transaction_log_entry *binder_transaction_log_add(
 	struct binder_transaction_log *log)
@@ -258,20 +223,6 @@ static struct binder_transaction_log_entry *binder_transaction_log_add(
 	memset(e, 0, sizeof(*e));
 	return e;
 }
-
-struct binder_context {
-	struct binder_node *binder_context_mgr_node;
-	struct mutex context_mgr_node_lock;
-
-	kuid_t binder_context_mgr_uid;
-	const char *name;
-};
-
-struct binder_device {
-	struct hlist_node hlist;
-	struct miscdevice miscdev;
-	struct binder_context context;
-};
 
 /**
  * struct binder_work - work enqueued on a worklist
@@ -537,6 +488,7 @@ struct binder_priority {
  * @inner_lock:           can nest under outer_lock and/or node lock
  * @outer_lock:           no nesting under innor or node lock
  *                        Lock order: 1) outer, 2) node, 3) inner
+ * @binderfs_entry:       process-specific binderfs log file
  *
  * Bookkeeping structure for binder processes
  */
@@ -568,6 +520,7 @@ struct binder_proc {
 	struct binder_context *context;
 	spinlock_t inner_lock;
 	spinlock_t outer_lock;
+	struct dentry *binderfs_entry;
 };
 
 enum {
@@ -661,6 +614,26 @@ struct binder_transaction {
 	 * during thread teardown
 	 */
 	spinlock_t lock;
+};
+
+/**
+ * struct binder_object - union of flat binder object types
+ * @hdr:   generic object header
+ * @fbo:   binder object (nodes and refs)
+ * @fdo:   file descriptor object
+ * @bbo:   binder buffer pointer
+ * @fdao:  file descriptor array
+ *
+ * Used for type-independent object copies
+ */
+struct binder_object {
+	union {
+		struct binder_object_header hdr;
+		struct flat_binder_object fbo;
+		struct binder_fd_object fdo;
+		struct binder_buffer_object bbo;
+		struct binder_fd_array_object fdao;
+	};
 };
 
 /**
@@ -2282,26 +2255,34 @@ static void binder_cleanup_transaction(struct binder_transaction *t,
 }
 
 /**
- * binder_validate_object() - checks for a valid metadata object in a buffer.
+ * binder_get_object() - gets object and checks for valid metadata
+ * @proc:	binder_proc owning the buffer
  * @buffer:	binder_buffer that we're parsing.
- * @offset:	offset in the buffer at which to validate an object.
+ * @offset:	offset in the @buffer at which to validate an object.
+ * @object:	struct binder_object to read into
  *
  * Return:	If there's a valid metadata object at @offset in @buffer, the
- *		size of that object. Otherwise, it returns zero.
+ *		size of that object. Otherwise, it returns zero. The object
+ *		is read into the struct binder_object pointed to by @object.
  */
-static size_t binder_validate_object(struct binder_buffer *buffer, u64 offset)
+static size_t binder_get_object(struct binder_proc *proc,
+				struct binder_buffer *buffer,
+				unsigned long offset,
+				struct binder_object *object)
 {
-	/* Check if we can read a header first */
+	size_t read_size;
 	struct binder_object_header *hdr;
 	size_t object_size = 0;
 
-	if (buffer->data_size < sizeof(*hdr) ||
-	    offset > buffer->data_size - sizeof(*hdr) ||
+	read_size = min_t(size_t, sizeof(*object), buffer->data_size - offset);
+	if (offset > buffer->data_size || read_size < sizeof(*hdr) ||
 	    !IS_ALIGNED(offset, sizeof(u32)))
 		return 0;
+	binder_alloc_copy_from_buffer(&proc->alloc, object, buffer,
+				      offset, read_size);
 
-	/* Ok, now see if we can read a complete object. */
-	hdr = (struct binder_object_header *)(buffer->data + offset);
+	/* Ok, now see if we read a complete object. */
+	hdr = &object->hdr;
 	switch (hdr->type) {
 	case BINDER_TYPE_BINDER:
 	case BINDER_TYPE_WEAK_BINDER:
@@ -2330,10 +2311,13 @@ static size_t binder_validate_object(struct binder_buffer *buffer, u64 offset)
 
 /**
  * binder_validate_ptr() - validates binder_buffer_object in a binder_buffer.
+ * @proc:	binder_proc owning the buffer
  * @b:		binder_buffer containing the object
+ * @object:	struct binder_object to read into
  * @index:	index in offset array at which the binder_buffer_object is
  *		located
- * @start:	points to the start of the offset array
+ * @start_offset: points to the start of the offset array
+ * @object_offsetp: offset of @object read from @b
  * @num_valid:	the number of valid offsets in the offset array
  *
  * Return:	If @index is within the valid range of the offset array
@@ -2344,34 +2328,46 @@ static size_t binder_validate_object(struct binder_buffer *buffer, u64 offset)
  *		Note that the offset found in index @index itself is not
  *		verified; this function assumes that @num_valid elements
  *		from @start were previously verified to have valid offsets.
+ *		If @object_offsetp is non-NULL, then the offset within
+ *		@b is written to it.
  */
-static struct binder_buffer_object *binder_validate_ptr(struct binder_buffer *b,
-							binder_size_t index,
-							binder_size_t *start,
-							binder_size_t num_valid)
+static struct binder_buffer_object *binder_validate_ptr(
+						struct binder_proc *proc,
+						struct binder_buffer *b,
+						struct binder_object *object,
+						binder_size_t index,
+						binder_size_t start_offset,
+						binder_size_t *object_offsetp,
+						binder_size_t num_valid)
 {
-	struct binder_buffer_object *buffer_obj;
-	binder_size_t *offp;
+	size_t object_size;
+	binder_size_t object_offset;
+	unsigned long buffer_offset;
 
 	if (index >= num_valid)
 		return NULL;
 
-	offp = start + index;
-	buffer_obj = (struct binder_buffer_object *)(b->data + *offp);
-	if (buffer_obj->hdr.type != BINDER_TYPE_PTR)
+	buffer_offset = start_offset + sizeof(binder_size_t) * index;
+	binder_alloc_copy_from_buffer(&proc->alloc, &object_offset,
+				      b, buffer_offset, sizeof(object_offset));
+	object_size = binder_get_object(proc, b, object_offset, object);
+	if (!object_size || object->hdr.type != BINDER_TYPE_PTR)
 		return NULL;
+	if (object_offsetp)
+		*object_offsetp = object_offset;
 
-	return buffer_obj;
+	return &object->bbo;
 }
 
 /**
  * binder_validate_fixup() - validates pointer/fd fixups happen in order.
+ * @proc:		binder_proc owning the buffer
  * @b:			transaction buffer
- * @objects_start	start of objects buffer
- * @buffer:		binder_buffer_object in which to fix up
- * @offset:		start offset in @buffer to fix up
- * @last_obj:		last binder_buffer_object that we fixed up in
- * @last_min_offset:	minimum fixup offset in @last_obj
+ * @objects_start_offset: offset to start of objects buffer
+ * @buffer_obj_offset:	offset to binder_buffer_object in which to fix up
+ * @fixup_offset:	start offset in @buffer to fix up
+ * @last_obj_offset:	offset to last binder_buffer_object that we fixed
+ * @last_min_offset:	minimum fixup offset in object at @last_obj_offset
  *
  * Return:		%true if a fixup in buffer @buffer at offset @offset is
  *			allowed.
@@ -2402,63 +2398,83 @@ static struct binder_buffer_object *binder_validate_ptr(struct binder_buffer *b,
  *   C (parent = A, offset = 16)
  *     D (parent = B, offset = 0) // B is not A or any of A's parents
  */
-static bool binder_validate_fixup(struct binder_buffer *b,
-				  binder_size_t *objects_start,
-				  struct binder_buffer_object *buffer,
+static bool binder_validate_fixup(struct binder_proc *proc,
+				  struct binder_buffer *b,
+				  binder_size_t objects_start_offset,
+				  binder_size_t buffer_obj_offset,
 				  binder_size_t fixup_offset,
-				  struct binder_buffer_object *last_obj,
+				  binder_size_t last_obj_offset,
 				  binder_size_t last_min_offset)
 {
-	if (!last_obj) {
+	if (!last_obj_offset) {
 		/* Nothing to fix up in */
 		return false;
 	}
 
-	while (last_obj != buffer) {
+	while (last_obj_offset != buffer_obj_offset) {
+		unsigned long buffer_offset;
+		struct binder_object last_object;
+		struct binder_buffer_object *last_bbo;
+		size_t object_size = binder_get_object(proc, b, last_obj_offset,
+						       &last_object);
+		if (object_size != sizeof(*last_bbo))
+			return false;
+
+		last_bbo = &last_object.bbo;
 		/*
 		 * Safe to retrieve the parent of last_obj, since it
 		 * was already previously verified by the driver.
 		 */
-		if ((last_obj->flags & BINDER_BUFFER_FLAG_HAS_PARENT) == 0)
+		if ((last_bbo->flags & BINDER_BUFFER_FLAG_HAS_PARENT) == 0)
 			return false;
-		last_min_offset = last_obj->parent_offset + sizeof(uintptr_t);
-		last_obj = (struct binder_buffer_object *)
-			(b->data + *(objects_start + last_obj->parent));
+		last_min_offset = last_bbo->parent_offset + sizeof(uintptr_t);
+		buffer_offset = objects_start_offset +
+			sizeof(binder_size_t) * last_bbo->parent,
+		binder_alloc_copy_from_buffer(&proc->alloc, &last_obj_offset,
+					      b, buffer_offset,
+					      sizeof(last_obj_offset));
 	}
 	return (fixup_offset >= last_min_offset);
 }
 
 static void binder_transaction_buffer_release(struct binder_proc *proc,
 					      struct binder_buffer *buffer,
-					      binder_size_t *failed_at)
+					      binder_size_t failed_at,
+					      bool is_failure)
 {
-	binder_size_t *offp, *off_start, *off_end;
 	int debug_id = buffer->debug_id;
+	binder_size_t off_start_offset, buffer_offset, off_end_offset;
 
 	binder_debug(BINDER_DEBUG_TRANSACTION,
-		     "%d(%s) buffer release %d, size %zd-%zd, failed at %pK\n",
-		     proc->pid, proc->tsk->comm, buffer->debug_id,
-		     buffer->data_size, buffer->offsets_size, failed_at);
+		     "%d buffer release %d, size %zd-%zd, failed at %llx\n",
+		     proc->pid, buffer->debug_id,
+		     buffer->data_size, buffer->offsets_size,
+		     (unsigned long long)failed_at);
 
 	if (buffer->target_node)
 		binder_dec_node(buffer->target_node, 1, 0);
 
-	off_start = (binder_size_t *)(buffer->data +
-				      ALIGN(buffer->data_size, sizeof(void *)));
-	if (failed_at)
-		off_end = failed_at;
-	else
-		off_end = (void *)off_start + buffer->offsets_size;
-	for (offp = off_start; offp < off_end; offp++) {
+	off_start_offset = ALIGN(buffer->data_size, sizeof(void *));
+	off_end_offset = is_failure ? failed_at :
+				off_start_offset + buffer->offsets_size;
+	for (buffer_offset = off_start_offset; buffer_offset < off_end_offset;
+	     buffer_offset += sizeof(binder_size_t)) {
 		struct binder_object_header *hdr;
-		size_t object_size = binder_validate_object(buffer, *offp);
+		size_t object_size;
+		struct binder_object object;
+		binder_size_t object_offset;
 
+		binder_alloc_copy_from_buffer(&proc->alloc, &object_offset,
+					      buffer, buffer_offset,
+					      sizeof(object_offset));
+		object_size = binder_get_object(proc, buffer,
+						object_offset, &object);
 		if (object_size == 0) {
 			pr_err("transaction release %d bad object at offset %lld, size %zd\n",
-			       debug_id, (u64)*offp, buffer->data_size);
+			       debug_id, (u64)object_offset, buffer->data_size);
 			continue;
 		}
-		hdr = (struct binder_object_header *)(buffer->data + *offp);
+		hdr = &object.hdr;
 		switch (hdr->type) {
 		case BINDER_TYPE_BINDER:
 		case BINDER_TYPE_WEAK_BINDER: {
@@ -2516,28 +2532,25 @@ static void binder_transaction_buffer_release(struct binder_proc *proc,
 		case BINDER_TYPE_FDA: {
 			struct binder_fd_array_object *fda;
 			struct binder_buffer_object *parent;
-			uintptr_t parent_buffer;
-			u32 *fd_array;
+			struct binder_object ptr_object;
+			binder_size_t fda_offset;
 			size_t fd_index;
 			binder_size_t fd_buf_size;
+			binder_size_t num_valid;
 
+			num_valid = (buffer_offset - off_start_offset) /
+						sizeof(binder_size_t);
 			fda = to_binder_fd_array_object(hdr);
-			parent = binder_validate_ptr(buffer, fda->parent,
-						     off_start,
-						     offp - off_start);
+			parent = binder_validate_ptr(proc, buffer, &ptr_object,
+						     fda->parent,
+						     off_start_offset,
+						     NULL,
+						     num_valid);
 			if (!parent) {
 				pr_err("transaction release %d bad parent offset",
 				       debug_id);
 				continue;
 			}
-			/*
-			 * Since the parent was already fixed up, convert it
-			 * back to kernel address space to access it
-			 */
-			parent_buffer = parent->buffer -
-				binder_alloc_get_user_buffer_offset(
-						&proc->alloc);
-
 			fd_buf_size = sizeof(u32) * fda->num_fds;
 			if (fda->num_fds >= SIZE_MAX / sizeof(u32)) {
 				pr_err("transaction release %d invalid number of fds (%lld)\n",
@@ -2551,9 +2564,29 @@ static void binder_transaction_buffer_release(struct binder_proc *proc,
 				       debug_id, (u64)fda->num_fds);
 				continue;
 			}
-			fd_array = (u32 *)(parent_buffer + (uintptr_t)fda->parent_offset);
-			for (fd_index = 0; fd_index < fda->num_fds; fd_index++)
-				task_close_fd(proc, fd_array[fd_index]);
+			/*
+			 * the source data for binder_buffer_object is visible
+			 * to user-space and the @buffer element is the user
+			 * pointer to the buffer_object containing the fd_array.
+			 * Convert the address to an offset relative to
+			 * the base of the transaction buffer.
+			 */
+			fda_offset =
+			    (parent->buffer - (uintptr_t)buffer->user_data) +
+			    fda->parent_offset;
+			for (fd_index = 0; fd_index < fda->num_fds;
+			     fd_index++) {
+				u32 fd;
+				binder_size_t offset = fda_offset +
+					fd_index * sizeof(fd);
+
+				binder_alloc_copy_from_buffer(&proc->alloc,
+							      &fd,
+							      buffer,
+							      offset,
+							      sizeof(fd));
+				task_close_fd(proc, fd);
+			}
 		} break;
 		default:
 			pr_err("transaction release %d bad object type %x\n",
@@ -2750,9 +2783,8 @@ static int binder_translate_fd_array(struct binder_fd_array_object *fda,
 				     struct binder_transaction *in_reply_to)
 {
 	binder_size_t fdi, fd_buf_size, num_installed_fds;
+	binder_size_t fda_offset;
 	int target_fd;
-	uintptr_t parent_buffer;
-	u32 *fd_array;
 	struct binder_proc *proc = thread->proc;
 	struct binder_proc *target_proc = t->to_proc;
 
@@ -2770,23 +2802,33 @@ static int binder_translate_fd_array(struct binder_fd_array_object *fda,
 		return -EINVAL;
 	}
 	/*
-	 * Since the parent was already fixed up, convert it
-	 * back to the kernel address space to access it
+	 * the source data for binder_buffer_object is visible
+	 * to user-space and the @buffer element is the user
+	 * pointer to the buffer_object containing the fd_array.
+	 * Convert the address to an offset relative to
+	 * the base of the transaction buffer.
 	 */
-	parent_buffer = parent->buffer -
-		binder_alloc_get_user_buffer_offset(&target_proc->alloc);
-	fd_array = (u32 *)(parent_buffer + (uintptr_t)fda->parent_offset);
-	if (!IS_ALIGNED((unsigned long)fd_array, sizeof(u32))) {
-		binder_user_error("%d:%d(%s:%s) parent offset not aligned correctly.\n",
-				  proc->pid, thread->pid, proc->tsk->comm, thread->task->comm);
+	fda_offset = (parent->buffer - (uintptr_t)t->buffer->user_data) +
+		fda->parent_offset;
+	if (!IS_ALIGNED((unsigned long)fda_offset, sizeof(u32))) {
+		binder_user_error("%d:%d parent offset not aligned correctly.\n",
+				  proc->pid, thread->pid);
 		return -EINVAL;
 	}
 	for (fdi = 0; fdi < fda->num_fds; fdi++) {
-		target_fd = binder_translate_fd(fd_array[fdi], t, thread,
-						in_reply_to);
+		u32 fd;
+
+		binder_size_t offset = fda_offset + fdi * sizeof(fd);
+
+		binder_alloc_copy_from_buffer(&target_proc->alloc,
+					      &fd, t->buffer,
+					      offset, sizeof(fd));
+		target_fd = binder_translate_fd(fd, t, thread, in_reply_to);
 		if (target_fd < 0)
 			goto err_translate_fd_failed;
-		fd_array[fdi] = target_fd;
+		binder_alloc_copy_to_buffer(&target_proc->alloc,
+					    t->buffer, offset,
+					    &target_fd, sizeof(fd));
 	}
 	return 0;
 
@@ -2796,38 +2838,48 @@ err_translate_fd_failed:
 	 * installed so far.
 	 */
 	num_installed_fds = fdi;
-	for (fdi = 0; fdi < num_installed_fds; fdi++)
-		task_close_fd(target_proc, fd_array[fdi]);
+	for (fdi = 0; fdi < num_installed_fds; fdi++) {
+		u32 fd;
+		binder_size_t offset = fda_offset + fdi * sizeof(fd);
+		binder_alloc_copy_from_buffer(&target_proc->alloc,
+					      &fd, t->buffer,
+					      offset, sizeof(fd));
+		task_close_fd(target_proc, fd);
+	}
 	return target_fd;
 }
 
 static int binder_fixup_parent(struct binder_transaction *t,
 			       struct binder_thread *thread,
 			       struct binder_buffer_object *bp,
-			       binder_size_t *off_start,
+			       binder_size_t off_start_offset,
 			       binder_size_t num_valid,
-			       struct binder_buffer_object *last_fixup_obj,
+			       binder_size_t last_fixup_obj_off,
 			       binder_size_t last_fixup_min_off)
 {
 	struct binder_buffer_object *parent;
-	u8 *parent_buffer;
 	struct binder_buffer *b = t->buffer;
 	struct binder_proc *proc = thread->proc;
 	struct binder_proc *target_proc = t->to_proc;
+	struct binder_object object;
+	binder_size_t buffer_offset;
+	binder_size_t parent_offset;
 
 	if (!(bp->flags & BINDER_BUFFER_FLAG_HAS_PARENT))
 		return 0;
 
-	parent = binder_validate_ptr(b, bp->parent, off_start, num_valid);
+	parent = binder_validate_ptr(target_proc, b, &object, bp->parent,
+				     off_start_offset, &parent_offset,
+				     num_valid);
 	if (!parent) {
 		binder_user_error("%d:%d(%s:%s) got transaction with invalid parent offset or type\n",
 				  proc->pid, thread->pid, proc->tsk->comm, thread->task->comm);
 		return -EINVAL;
 	}
 
-	if (!binder_validate_fixup(b, off_start,
-				   parent, bp->parent_offset,
-				   last_fixup_obj,
+	if (!binder_validate_fixup(target_proc, b, off_start_offset,
+				   parent_offset, bp->parent_offset,
+				   last_fixup_obj_off,
 				   last_fixup_min_off)) {
 		binder_user_error("%d:%d(%s:%s) got transaction with out-of-order buffer fixup\n",
 				  proc->pid, thread->pid, proc->tsk->comm, thread->task->comm);
@@ -2841,10 +2893,10 @@ static int binder_fixup_parent(struct binder_transaction *t,
 				  proc->pid, thread->pid, proc->tsk->comm, thread->task->comm);
 		return -EINVAL;
 	}
-	parent_buffer = (u8 *)((uintptr_t)parent->buffer -
-			binder_alloc_get_user_buffer_offset(
-				&target_proc->alloc));
-	*(binder_uintptr_t *)(parent_buffer + bp->parent_offset) = bp->buffer;
+	buffer_offset = bp->parent_offset +
+			(uintptr_t)parent->buffer - (uintptr_t)b->user_data;
+	binder_alloc_copy_to_buffer(&target_proc->alloc, b, buffer_offset,
+				    &bp->buffer, sizeof(bp->buffer));
 
 	return 0;
 }
@@ -2969,9 +3021,10 @@ static void binder_transaction(struct binder_proc *proc,
 	int ret;
 	struct binder_transaction *t;
 	struct binder_work *tcomplete;
-	binder_size_t *offp, *off_end, *off_start;
+	binder_size_t buffer_offset = 0;
+	binder_size_t off_start_offset, off_end_offset;
 	binder_size_t off_min;
-	u8 *sg_bufp, *sg_buf_end;
+	binder_size_t sg_buf_offset, sg_buf_end_offset;
 	struct binder_proc *target_proc = NULL;
 	struct binder_thread *target_thread = NULL;
 	struct binder_node *target_node = NULL;
@@ -2980,7 +3033,7 @@ static void binder_transaction(struct binder_proc *proc,
 	uint32_t return_error = 0;
 	uint32_t return_error_param = 0;
 	uint32_t return_error_line = 0;
-	struct binder_buffer_object *last_fixup_obj = NULL;
+	binder_size_t last_fixup_obj_off = 0;
 	binder_size_t last_fixup_min_off = 0;
 	struct binder_context *context = proc->context;
 	int t_debug_id = atomic_inc_return(&binder_last_id);
@@ -3090,7 +3143,7 @@ static void binder_transaction(struct binder_proc *proc,
 			else
 				return_error = BR_DEAD_REPLY;
 			mutex_unlock(&context->context_mgr_node_lock);
-			if (target_node && target_proc == proc) {
+			if (target_node && target_proc->pid == proc->pid) {
 				binder_user_error("%d:%d got transaction to context manager from process owning it\n",
 						  proc->pid, thread->pid);
 				return_error = BR_FAILED_REPLY;
@@ -3266,11 +3319,11 @@ static void binder_transaction(struct binder_proc *proc,
 				    ALIGN(tr->offsets_size, sizeof(void *)) +
 				    ALIGN(extra_buffers_size, sizeof(void *)) -
 				    ALIGN(secctx_sz, sizeof(u64));
-		char *kptr = t->buffer->data + buf_offset;
 
-		t->security_ctx = (uintptr_t)kptr +
-		    binder_alloc_get_user_buffer_offset(&target_proc->alloc);
-		memcpy(kptr, secctx, secctx_sz);
+		t->security_ctx = (uintptr_t)t->buffer->user_data + buf_offset;
+		binder_alloc_copy_to_buffer(&target_proc->alloc,
+					    t->buffer, buf_offset,
+					    secctx, secctx_sz);
 		security_release_secctx(secctx, secctx_sz);
 		secctx = NULL;
 	}
@@ -3278,23 +3331,29 @@ static void binder_transaction(struct binder_proc *proc,
 	t->buffer->transaction = t;
 	t->buffer->target_node = target_node;
 	trace_binder_transaction_alloc_buf(t->buffer);
-	off_start = (binder_size_t *)(t->buffer->data +
-				      ALIGN(tr->data_size, sizeof(void *)));
-	offp = off_start;
 
-	if (copy_from_user(t->buffer->data, (const void __user *)(uintptr_t)
-			   tr->data.ptr.buffer, tr->data_size)) {
-		binder_user_error("%d:%d(%s:%s) got transaction with invalid data ptr\n",
-				proc->pid, thread->pid, proc->tsk->comm, thread->task->comm);
+	if (binder_alloc_copy_user_to_buffer(
+				&target_proc->alloc,
+				t->buffer, 0,
+				(const void __user *)
+					(uintptr_t)tr->data.ptr.buffer,
+				tr->data_size)) {
+		binder_user_error("%d:%d got transaction with invalid data ptr\n",
+				proc->pid, thread->pid);
 		return_error = BR_FAILED_REPLY;
 		return_error_param = -EFAULT;
 		return_error_line = __LINE__;
 		goto err_copy_data_failed;
 	}
-	if (copy_from_user(offp, (const void __user *)(uintptr_t)
-			   tr->data.ptr.offsets, tr->offsets_size)) {
-		binder_user_error("%d:%d(%s:%s) got transaction with invalid offsets ptr\n",
-				proc->pid, thread->pid, proc->tsk->comm, thread->task->comm);
+	if (binder_alloc_copy_user_to_buffer(
+				&target_proc->alloc,
+				t->buffer,
+				ALIGN(tr->data_size, sizeof(void *)),
+				(const void __user *)
+					(uintptr_t)tr->data.ptr.offsets,
+				tr->offsets_size)) {
+		binder_user_error("%d:%d got transaction with invalid offsets ptr\n",
+				proc->pid, thread->pid);
 		return_error = BR_FAILED_REPLY;
 		return_error_param = -EFAULT;
 		return_error_line = __LINE__;
@@ -3317,20 +3376,31 @@ static void binder_transaction(struct binder_proc *proc,
 		return_error_line = __LINE__;
 		goto err_bad_offset;
 	}
-	off_end = (void *)off_start + tr->offsets_size;
-	sg_bufp = (u8 *)(PTR_ALIGN(off_end, sizeof(void *)));
-	sg_buf_end = sg_bufp + extra_buffers_size -
+	off_start_offset = ALIGN(tr->data_size, sizeof(void *));
+	buffer_offset = off_start_offset;
+	off_end_offset = off_start_offset + tr->offsets_size;
+	sg_buf_offset = ALIGN(off_end_offset, sizeof(void *));
+	sg_buf_end_offset = sg_buf_offset + extra_buffers_size -
 		ALIGN(secctx_sz, sizeof(u64));
 	off_min = 0;
-	for (; offp < off_end; offp++) {
+	for (buffer_offset = off_start_offset; buffer_offset < off_end_offset;
+	     buffer_offset += sizeof(binder_size_t)) {
 		struct binder_object_header *hdr;
-		size_t object_size = binder_validate_object(t->buffer, *offp);
+		size_t object_size;
+		struct binder_object object;
+		binder_size_t object_offset;
 
-		if (object_size == 0 || *offp < off_min) {
-			binder_user_error("%d:%d(%s:%s) got transaction with invalid offset (%lld, min %lld max %lld)"\
-					  " or object.\n",
-					  proc->pid, thread->pid, proc->tsk->comm, thread->task->comm,
-					  (u64)*offp,
+		binder_alloc_copy_from_buffer(&target_proc->alloc,
+					      &object_offset,
+					      t->buffer,
+					      buffer_offset,
+					      sizeof(object_offset));
+		object_size = binder_get_object(target_proc, t->buffer,
+						object_offset, &object);
+		if (object_size == 0 || object_offset < off_min) {
+			binder_user_error("%d:%d got transaction with invalid offset (%lld, min %lld max %lld) or object.\n",
+					  proc->pid, thread->pid,
+					  (u64)object_offset,
 					  (u64)off_min,
 					  (u64)t->buffer->data_size);
 			return_error = BR_FAILED_REPLY;
@@ -3339,8 +3409,8 @@ static void binder_transaction(struct binder_proc *proc,
 			goto err_bad_offset;
 		}
 
-		hdr = (struct binder_object_header *)(t->buffer->data + *offp);
-		off_min = *offp + object_size;
+		hdr = &object.hdr;
+		off_min = object_offset + object_size;
 		switch (hdr->type) {
 		case BINDER_TYPE_BINDER:
 		case BINDER_TYPE_WEAK_BINDER: {
@@ -3354,6 +3424,9 @@ static void binder_transaction(struct binder_proc *proc,
 				return_error_line = __LINE__;
 				goto err_translate_failed;
 			}
+			binder_alloc_copy_to_buffer(&target_proc->alloc,
+						    t->buffer, object_offset,
+						    fp, sizeof(*fp));
 		} break;
 		case BINDER_TYPE_HANDLE:
 		case BINDER_TYPE_WEAK_HANDLE: {
@@ -3367,6 +3440,9 @@ static void binder_transaction(struct binder_proc *proc,
 				return_error_line = __LINE__;
 				goto err_translate_failed;
 			}
+			binder_alloc_copy_to_buffer(&target_proc->alloc,
+						    t->buffer, object_offset,
+						    fp, sizeof(*fp));
 		} break;
 
 		case BINDER_TYPE_FD: {
@@ -3382,14 +3458,23 @@ static void binder_transaction(struct binder_proc *proc,
 			}
 			fp->pad_binder = 0;
 			fp->fd = target_fd;
+			binder_alloc_copy_to_buffer(&target_proc->alloc,
+						    t->buffer, object_offset,
+						    fp, sizeof(*fp));
 		} break;
 		case BINDER_TYPE_FDA: {
+			struct binder_object ptr_object;
+			binder_size_t parent_offset;
 			struct binder_fd_array_object *fda =
 				to_binder_fd_array_object(hdr);
+			size_t num_valid = (buffer_offset - off_start_offset) /
+						sizeof(binder_size_t);
 			struct binder_buffer_object *parent =
-				binder_validate_ptr(t->buffer, fda->parent,
-						    off_start,
-						    offp - off_start);
+				binder_validate_ptr(target_proc, t->buffer,
+						    &ptr_object, fda->parent,
+						    off_start_offset,
+						    &parent_offset,
+						    num_valid);
 			if (!parent) {
 				binder_user_error("%d:%d(%s:%s) got transaction with invalid parent offset or type\n",
 						  proc->pid, thread->pid, proc->tsk->comm, thread->task->comm);
@@ -3398,9 +3483,11 @@ static void binder_transaction(struct binder_proc *proc,
 				return_error_line = __LINE__;
 				goto err_bad_parent;
 			}
-			if (!binder_validate_fixup(t->buffer, off_start,
-						   parent, fda->parent_offset,
-						   last_fixup_obj,
+			if (!binder_validate_fixup(target_proc, t->buffer,
+						   off_start_offset,
+						   parent_offset,
+						   fda->parent_offset,
+						   last_fixup_obj_off,
 						   last_fixup_min_off)) {
 				binder_user_error("%d:%d(%s:%s) got transaction with out-of-order buffer fixup\n",
 						  proc->pid, thread->pid, proc->tsk->comm, thread->task->comm);
@@ -3417,14 +3504,15 @@ static void binder_transaction(struct binder_proc *proc,
 				return_error_line = __LINE__;
 				goto err_translate_failed;
 			}
-			last_fixup_obj = parent;
+			last_fixup_obj_off = parent_offset;
 			last_fixup_min_off =
 				fda->parent_offset + sizeof(u32) * fda->num_fds;
 		} break;
 		case BINDER_TYPE_PTR: {
 			struct binder_buffer_object *bp =
 				to_binder_buffer_object(hdr);
-			size_t buf_left = sg_buf_end - sg_bufp;
+			size_t buf_left = sg_buf_end_offset - sg_buf_offset;
+			size_t num_valid;
 
 			if (bp->length > buf_left) {
 				binder_user_error("%d:%d(%s:%s) got transaction with too large buffer\n",
@@ -3434,25 +3522,31 @@ static void binder_transaction(struct binder_proc *proc,
 				return_error_line = __LINE__;
 				goto err_bad_offset;
 			}
-			if (copy_from_user(sg_bufp,
-					   (const void __user *)(uintptr_t)
-					   bp->buffer, bp->length)) {
-				binder_user_error("%d:%d(%s:%s) got transaction with invalid offsets ptr\n",
-						  proc->pid, thread->pid, proc->tsk->comm, thread->task->comm);
+			if (binder_alloc_copy_user_to_buffer(
+						&target_proc->alloc,
+						t->buffer,
+						sg_buf_offset,
+						(const void __user *)
+							(uintptr_t)bp->buffer,
+						bp->length)) {
+				binder_user_error("%d:%d got transaction with invalid offsets ptr\n",
+						  proc->pid, thread->pid);
 				return_error_param = -EFAULT;
 				return_error = BR_FAILED_REPLY;
 				return_error_line = __LINE__;
 				goto err_copy_data_failed;
 			}
 			/* Fixup buffer pointer to target proc address space */
-			bp->buffer = (uintptr_t)sg_bufp +
-				binder_alloc_get_user_buffer_offset(
-						&target_proc->alloc);
-			sg_bufp += ALIGN(bp->length, sizeof(u64));
+			bp->buffer = (uintptr_t)
+				t->buffer->user_data + sg_buf_offset;
+			sg_buf_offset += ALIGN(bp->length, sizeof(u64));
 
-			ret = binder_fixup_parent(t, thread, bp, off_start,
-						  offp - off_start,
-						  last_fixup_obj,
+			num_valid = (buffer_offset - off_start_offset) /
+					sizeof(binder_size_t);
+			ret = binder_fixup_parent(t, thread, bp,
+						  off_start_offset,
+						  num_valid,
+						  last_fixup_obj_off,
 						  last_fixup_min_off);
 			if (ret < 0) {
 				return_error = BR_FAILED_REPLY;
@@ -3460,7 +3554,10 @@ static void binder_transaction(struct binder_proc *proc,
 				return_error_line = __LINE__;
 				goto err_translate_failed;
 			}
-			last_fixup_obj = bp;
+			binder_alloc_copy_to_buffer(&target_proc->alloc,
+						    t->buffer, object_offset,
+						    bp, sizeof(*bp));
+			last_fixup_obj_off = object_offset;
 			last_fixup_min_off = 0;
 		} break;
 		default:
@@ -3540,7 +3637,8 @@ err_bad_offset:
 err_bad_parent:
 err_copy_data_failed:
 	trace_binder_transaction_failed_buffer_release(t->buffer);
-	binder_transaction_buffer_release(target_proc, t->buffer, offp);
+	binder_transaction_buffer_release(target_proc, t->buffer,
+					  buffer_offset, true);
 	if (target_node)
 		binder_dec_node_tmpref(target_node);
 	target_node = NULL;
@@ -3830,7 +3928,7 @@ static int binder_thread_write(struct binder_proc *proc,
 				binder_node_inner_unlock(buf_node);
 			}
 			trace_binder_transaction_buffer_release(buffer);
-			binder_transaction_buffer_release(proc, buffer, NULL);
+			binder_transaction_buffer_release(proc, buffer, 0, false);
 			binder_alloc_free_buf(&proc->alloc, buffer);
 			break;
 		}
@@ -4267,16 +4365,16 @@ retry:
 		case BINDER_WORK_TRANSACTION_COMPLETE: {
 			binder_inner_proc_unlock(proc);
 			cmd = BR_TRANSACTION_COMPLETE;
+			kfree(w);
+			binder_stats_deleted(BINDER_STAT_TRANSACTION_COMPLETE);
 			if (put_user(cmd, (uint32_t __user *)ptr))
 				return -EFAULT;
 			ptr += sizeof(uint32_t);
 
 			binder_stat_br(proc, thread, cmd);
 			binder_debug(BINDER_DEBUG_TRANSACTION_COMPLETE,
-				     "%d:%d(%s:%s) BR_TRANSACTION_COMPLETE\n",
-				     proc->pid, thread->pid, proc->tsk->comm, thread->task->comm);
-			kfree(w);
-			binder_stats_deleted(BINDER_STAT_TRANSACTION_COMPLETE);
+				     "%d:%d BR_TRANSACTION_COMPLETE\n",
+				     proc->pid, thread->pid);
 		} break;
 		case BINDER_WORK_NODE: {
 			struct binder_node *node = container_of(w, struct binder_node, work);
@@ -4445,9 +4543,7 @@ retry:
 
 		trd->data_size = t->buffer->data_size;
 		trd->offsets_size = t->buffer->offsets_size;
-		trd->data.ptr.buffer = (binder_uintptr_t)
-			((uintptr_t)t->buffer->data +
-			binder_alloc_get_user_buffer_offset(&proc->alloc));
+		trd->data.ptr.buffer = (uintptr_t)t->buffer->user_data;
 		trd->data.ptr.offsets = trd->data.ptr.buffer +
 					ALIGN(t->buffer->data_size,
 					    sizeof(void *));
@@ -4900,6 +4996,42 @@ out:
 	return ret;
 }
 
+static int binder_ioctl_get_node_info_for_ref(struct binder_proc *proc,
+		struct binder_node_info_for_ref *info)
+{
+	struct binder_node *node;
+	struct binder_context *context = proc->context;
+	__u32 handle = info->handle;
+
+	if (info->strong_count || info->weak_count || info->reserved1 ||
+	    info->reserved2 || info->reserved3) {
+		binder_user_error("%d BINDER_GET_NODE_INFO_FOR_REF: only handle may be non-zero.",
+				  proc->pid);
+		return -EINVAL;
+	}
+
+	/* This ioctl may only be used by the context manager */
+	mutex_lock(&context->context_mgr_node_lock);
+	if (!context->binder_context_mgr_node ||
+		context->binder_context_mgr_node->proc != proc) {
+		mutex_unlock(&context->context_mgr_node_lock);
+		return -EPERM;
+	}
+	mutex_unlock(&context->context_mgr_node_lock);
+
+	node = binder_get_node_from_ref(proc, handle, true, NULL);
+	if (!node)
+		return -EINVAL;
+
+	info->strong_count = node->local_strong_refs +
+		node->internal_strong_refs;
+	info->weak_count = node->local_weak_refs;
+
+	binder_put_node(node);
+
+	return 0;
+}
+
 static int binder_ioctl_get_node_debug_info(struct binder_proc *proc,
 				struct binder_node_debug_info *info)
 {
@@ -5004,6 +5136,25 @@ static long binder_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			ret = -EINVAL;
 			goto err;
 		}
+		break;
+	}
+	case BINDER_GET_NODE_INFO_FOR_REF: {
+		struct binder_node_info_for_ref info;
+
+		if (copy_from_user(&info, ubuf, sizeof(info))) {
+			ret = -EFAULT;
+			goto err;
+		}
+
+		ret = binder_ioctl_get_node_info_for_ref(proc, &info);
+		if (ret < 0)
+			goto err;
+
+		if (copy_to_user(ubuf, &info, sizeof(info))) {
+			ret = -EFAULT;
+			goto err;
+		}
+
 		break;
 	}
 	case BINDER_GET_NODE_DEBUG_INFO: {
@@ -5125,6 +5276,8 @@ static int binder_open(struct inode *nodp, struct file *filp)
 {
 	struct binder_proc *proc;
 	struct binder_device *binder_dev;
+	struct binderfs_info *info;
+	struct dentry *binder_binderfs_dir_entry_proc = NULL;
 
 	binder_debug(BINDER_DEBUG_OPEN_CLOSE, "%s: %d:%d (%s:%s)\n", __func__,
 		     current->group_leader->pid, current->pid,
@@ -5147,8 +5300,16 @@ static int binder_open(struct inode *nodp, struct file *filp)
 		proc->default_priority.prio = NICE_TO_PRIO(0);
 	}
 
-	binder_dev = container_of(filp->private_data, struct binder_device,
-				  miscdev);
+	/* binderfs stashes devices in i_private */
+	if (is_binderfs_device(nodp)) {
+		binder_dev = nodp->i_private;
+		info = nodp->i_sb->s_fs_info;
+		binder_binderfs_dir_entry_proc = info->proc_log_dir;
+	} else {
+		binder_dev = container_of(filp->private_data,
+					  struct binder_device, miscdev);
+	}
+	refcount_inc(&binder_dev->ref);
 	proc->context = &binder_dev->context;
 	binder_alloc_init(&proc->alloc);
 
@@ -5176,7 +5337,36 @@ static int binder_open(struct inode *nodp, struct file *filp)
 		proc->debugfs_entry = debugfs_create_file(strbuf, 0444,
 			binder_debugfs_dir_entry_proc,
 			(void *)(unsigned long)proc->pid,
-			&binder_proc_fops);
+			&proc_fops);
+	}
+
+	if (binder_binderfs_dir_entry_proc) {
+		char strbuf[11];
+		struct dentry *binderfs_entry;
+
+		snprintf(strbuf, sizeof(strbuf), "%u", proc->pid);
+		/*
+		 * Similar to debugfs, the process specific log file is shared
+		 * between contexts. If the file has already been created for a
+		 * process, the following binderfs_create_file() call will
+		 * fail with error code EEXIST if another context of the same
+		 * process invoked binder_open(). This is ok since same as
+		 * debugfs, the log file will contain information on all
+		 * contexts of a given PID.
+		 */
+		binderfs_entry = binderfs_create_file(binder_binderfs_dir_entry_proc,
+			strbuf, &proc_fops, (void *)(unsigned long)proc->pid);
+		if (!IS_ERR(binderfs_entry)) {
+			proc->binderfs_entry = binderfs_entry;
+		} else {
+			int error;
+
+			error = PTR_ERR(binderfs_entry);
+			if (error != -EEXIST) {
+				pr_warn("Unable to create file %s in binderfs (error %d)\n",
+					strbuf, error);
+			}
+		}
 	}
 
 	return 0;
@@ -5218,6 +5408,12 @@ static int binder_release(struct inode *nodp, struct file *filp)
 	struct binder_proc *proc = filp->private_data;
 
 	debugfs_remove(proc->debugfs_entry);
+
+	if (proc->binderfs_entry) {
+		binderfs_remove_file(proc->binderfs_entry);
+		proc->binderfs_entry = NULL;
+	}
+
 	binder_defer_work(proc, BINDER_DEFERRED_RELEASE);
 
 	return 0;
@@ -5291,6 +5487,7 @@ static int binder_node_release(struct binder_node *node, int refs)
 static void binder_deferred_release(struct binder_proc *proc)
 {
 	struct binder_context *context = proc->context;
+	struct binder_device *device;
 	struct rb_node *n;
 	int threads, nodes, incoming_refs, outgoing_refs, active_transactions;
 
@@ -5309,6 +5506,12 @@ static void binder_deferred_release(struct binder_proc *proc)
 		context->binder_context_mgr_node = NULL;
 	}
 	mutex_unlock(&context->context_mgr_node_lock);
+	device = container_of(proc->context, struct binder_device, context);
+	if (refcount_dec_and_test(&device->ref)) {
+		kfree(context->name);
+		kfree(device);
+	}
+	proc->context = NULL;
 	binder_inner_proc_lock(proc);
 	/*
 	 * Make sure proc stays alive after we
@@ -5471,7 +5674,7 @@ static void print_binder_transaction_ilocked(struct seq_file *m,
 		seq_printf(m, " node %d", buffer->target_node->debug_id);
 	seq_printf(m, " size %zd:%zd data %pK\n",
 		   buffer->data_size, buffer->offsets_size,
-		   buffer->data);
+		   buffer->user_data);
 }
 
 static void print_binder_work_ilocked(struct seq_file *m,
@@ -5621,6 +5824,9 @@ static void print_binder_proc(struct seq_file *m,
 	for (n = rb_first(&proc->nodes); n != NULL; n = rb_next(n)) {
 		struct binder_node *node = rb_entry(n, struct binder_node,
 						    rb_node);
+		if (!print_all && !node->has_async_transaction)
+			continue;
+
 		/*
 		 * take a temporary reference on the node so it
 		 * survives and isn't removed from the tree
@@ -5825,7 +6031,7 @@ static void print_binder_proc_stats(struct seq_file *m,
 }
 
 
-static int binder_state_show(struct seq_file *m, void *unused)
+int binder_state_show(struct seq_file *m, void *unused)
 {
 	struct binder_proc *proc;
 	struct binder_node *node;
@@ -5864,7 +6070,7 @@ static int binder_state_show(struct seq_file *m, void *unused)
 	return 0;
 }
 
-static int binder_stats_show(struct seq_file *m, void *unused)
+int binder_stats_show(struct seq_file *m, void *unused)
 {
 	struct binder_proc *proc;
 
@@ -5880,7 +6086,7 @@ static int binder_stats_show(struct seq_file *m, void *unused)
 	return 0;
 }
 
-static int binder_transactions_show(struct seq_file *m, void *unused)
+int binder_transactions_show(struct seq_file *m, void *unused)
 {
 	struct binder_proc *proc;
 
@@ -5893,7 +6099,7 @@ static int binder_transactions_show(struct seq_file *m, void *unused)
 	return 0;
 }
 
-static int binder_proc_show(struct seq_file *m, void *unused)
+static int proc_show(struct seq_file *m, void *unused)
 {
 	struct binder_proc *itr;
 	int pid = (unsigned long)m->private;
@@ -5936,7 +6142,7 @@ static void print_binder_transaction_log_entry(struct seq_file *m,
 			"\n" : " (incomplete)\n");
 }
 
-static int binder_transaction_log_show(struct seq_file *m, void *unused)
+int binder_transaction_log_show(struct seq_file *m, void *unused)
 {
 	struct binder_transaction_log *log = m->private;
 	unsigned int log_cur = atomic_read(&log->cur);
@@ -5957,7 +6163,7 @@ static int binder_transaction_log_show(struct seq_file *m, void *unused)
 	return 0;
 }
 
-static const struct file_operations binder_fops = {
+const struct file_operations binder_fops = {
 	.owner = THIS_MODULE,
 	.poll = binder_poll,
 	.unlocked_ioctl = binder_ioctl,
@@ -5967,11 +6173,6 @@ static const struct file_operations binder_fops = {
 	.flush = binder_flush,
 	.release = binder_release,
 };
-
-BINDER_DEBUG_ENTRY(state);
-BINDER_DEBUG_ENTRY(stats);
-BINDER_DEBUG_ENTRY(transactions);
-BINDER_DEBUG_ENTRY(transaction_log);
 
 static int __init init_binder_device(const char *name)
 {
@@ -5986,6 +6187,7 @@ static int __init init_binder_device(const char *name)
 	binder_device->miscdev.minor = MISC_DYNAMIC_MINOR;
 	binder_device->miscdev.name = name;
 
+	refcount_set(&binder_device->ref, 1);
 	binder_device->context.binder_context_mgr_uid = INVALID_UID;
 	binder_device->context.name = name;
 	mutex_init(&binder_device->context.context_mgr_node_lock);
@@ -6004,9 +6206,10 @@ static int __init init_binder_device(const char *name)
 static int __init binder_init(void)
 {
 	int ret;
-	char *device_name, *device_names, *device_tmp;
+	char *device_name, *device_tmp;
 	struct binder_device *device;
 	struct hlist_node *tmp;
+	char *device_names = NULL;
 
 	ret = binder_alloc_shrinker_init();
 	if (ret)
@@ -6048,23 +6251,29 @@ static int __init binder_init(void)
 				    &binder_transaction_log_fops);
 	}
 
-	/*
-	 * Copy the module_parameter string, because we don't want to
-	 * tokenize it in-place.
-	 */
-	device_names = kzalloc(strlen(binder_devices_param) + 1, GFP_KERNEL);
-	if (!device_names) {
-		ret = -ENOMEM;
-		goto err_alloc_device_names_failed;
-	}
-	strcpy(device_names, binder_devices_param);
+	if (!IS_ENABLED(CONFIG_ANDROID_BINDERFS) &&
+	    strcmp(binder_devices_param, "") != 0) {
+		/*
+		* Copy the module_parameter string, because we don't want to
+		* tokenize it in-place.
+		 */
+		device_names = kstrdup(binder_devices_param, GFP_KERNEL);
+		if (!device_names) {
+			ret = -ENOMEM;
+			goto err_alloc_device_names_failed;
+		}
 
-	device_tmp = device_names;
-	while ((device_name = strsep(&device_tmp, ","))) {
-		ret = init_binder_device(device_name);
-		if (ret)
-			goto err_init_binder_device_failed;
+		device_tmp = device_names;
+		while ((device_name = strsep(&device_tmp, ","))) {
+			ret = init_binder_device(device_name);
+			if (ret)
+				goto err_init_binder_device_failed;
+		}
 	}
+
+	ret = init_binderfs();
+	if (ret)
+		goto err_init_binder_device_failed;
 
 	return ret;
 

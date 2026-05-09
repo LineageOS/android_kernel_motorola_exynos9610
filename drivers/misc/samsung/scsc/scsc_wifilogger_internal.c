@@ -212,7 +212,9 @@ void scsc_wifilogger_destroy(void)
 
 	mxman_unregister_firmware_notifier(&firmware_nb);
 	/* Remove DebufgFS hooks at first... */
+#ifdef CONFIG_SCSC_WIFILOGGER_DEBUGFS
 	scsc_wifilogger_debugfs_remove_top_dir_recursive();
+#endif
 
 	mutex_lock(&wl->lock);
 	for (i = 0; i < MAX_WIFI_LOGGER_RINGS; i++) {

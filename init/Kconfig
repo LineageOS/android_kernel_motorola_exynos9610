@@ -16,6 +16,12 @@ config DEFCONFIG_LIST
 	default "$ARCH_DEFCONFIG"
 	default "arch/$ARCH/defconfig"
 
+config TOOLS_SUPPORT_RELR
+	bool "Declare tool support for RELR"
+	# Prevent this from being enabled by default in allyesconfig or
+	# allmodconfig builds.
+	depends on !COMPILE_TEST
+
 config CONSTRUCTORS
 	bool
 	depends on !UML
@@ -545,6 +551,15 @@ config IKCONFIG_PROC
 	---help---
 	  This option enables access to the kernel configuration file
 	  through /proc/config.gz.
+
+config IKHEADERS
+	tristate "Enable kernel headers through /sys/kernel/kheaders.tar.xz"
+	depends on SYSFS
+	help
+	  This option enables access to the in-kernel headers that are generated during
+	  the build process. These can be used to build eBPF tracing programs,
+	  or similar programs.  If you build the headers as a module, a module called
+	  kheaders.ko is built which can be loaded on-demand to get access to headers.
 
 config LOG_BUF_SHIFT
 	int "Kernel log buffer size (16 => 64KB, 17 => 128KB)"

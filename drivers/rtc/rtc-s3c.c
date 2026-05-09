@@ -334,7 +334,6 @@ static int s3c_rtc_setalarm(struct device *dev, struct rtc_wkalrm *alrm)
 	struct rtc_time *tm = &alrm->time;
 	unsigned int alrm_en;
 	int ret;
-	int year = tm->tm_year - 100;
 
 	dev_dbg(dev, "s3c_rtc_setalarm: %d, %04d.%02d.%02d %02d:%02d:%02d\n",
 		alrm->enabled,
@@ -363,11 +362,6 @@ static int s3c_rtc_setalarm(struct device *dev, struct rtc_wkalrm *alrm)
 		writeb(bin2bcd(tm->tm_hour), info->base + S3C2410_ALMHOUR);
 	}
 
-	if (year < 100 && year >= 0) {
-		alrm_en |= S3C2410_RTCALM_YEAREN;
-		writew(bin2bcd(year), info->base + S3C2410_ALMYEAR);
-	}
-
 	if (tm->tm_mon < 12 && tm->tm_mon >= 0) {
 		alrm_en |= S3C2410_RTCALM_MONEN;
 		writeb(bin2bcd(tm->tm_mon + 1), info->base + S3C2410_ALMMON);
@@ -388,14 +382,6 @@ static int s3c_rtc_setalarm(struct device *dev, struct rtc_wkalrm *alrm)
 
 	return 0;
 }
-
-static int s3c_rtc_proc(struct device *dev, struct seq_file *seq)
-{
-	struct s3c_rtc *info = dev_get_drvdata(dev);
-	int ret;
-
-	ret = s3c_rtc_enable_clk(info);
-	if (ret)
 		return ret;
 
 	if (info->data->enable_tick)
