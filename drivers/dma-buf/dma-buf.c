@@ -87,10 +87,6 @@ static void dma_buf_release(struct dentry *dentry)
 
 	dmabuf->ops->release(dmabuf);
 
-	mutex_lock(&db_list.lock);
-	list_del(&dmabuf->list_node);
-	mutex_unlock(&db_list.lock);
-
 	dmabuf_trace_free(dmabuf);
 
 	if (dmabuf->resv == (struct reservation_object *)&dmabuf[1])
