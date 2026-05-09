@@ -635,6 +635,8 @@ try_again:
 	if (host->ops->init_card)
 		host->ops->init_card(host, card);
 
+	card->ocr = ocr_card;
+
 	/*
 	 * If the host and card support UHS-I mode request the card
 	 * to switch to 1.8V signaling level.  No 1.8v signalling if
@@ -726,9 +728,8 @@ try_again:
 				/* Retry init sequence, but without R4_18V_PRESENT. */
 				retries = 0;
 				goto try_again;
-			} else {
-				goto remove;
 			}
+			return err;
 		}
 #ifdef CONFIG_MMC_EMBEDDED_SDIO
 	}
@@ -758,7 +759,7 @@ try_again:
 
 		card = oldcard;
 	}
-	card->ocr = ocr_card;
+
 	mmc_fixup_device(card, sdio_fixup_methods);
 
 	if (card->type == MMC_TYPE_SD_COMBO) {

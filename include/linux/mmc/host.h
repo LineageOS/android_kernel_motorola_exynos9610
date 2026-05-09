@@ -351,6 +351,7 @@ struct mmc_host {
 #define MMC_CAP2_CQE		(1 << 23)	/* Has eMMC command queue engine */
 #define MMC_CAP2_CQE_DCMD	(1 << 24)	/* CQE can issue a direct command */
 #define MMC_CAP2_SKIP_INIT_NOT_TRAY	(1 << 25)	/* Skip init when to not tray detect */
+#define MMC_CAP2_CRYPTO		(1 << 27)	/* Host supports inline encryption */
 
 	mmc_pm_flag_t		pm_caps;	/* supported pm features */
 
@@ -440,6 +441,10 @@ struct mmc_host {
 	int			cqe_qdepth;
 	bool			cqe_enabled;
 	bool			cqe_on;
+#ifdef CONFIG_MMC_CRYPTO
+	struct keyslot_manager	*ksm;
+	void *crypto_DO_NOT_USE[7];
+#endif /* CONFIG_MMC_CRYPTO */
 
 #ifdef CONFIG_MMC_EMBEDDED_SDIO
 	struct {
