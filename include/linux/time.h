@@ -18,6 +18,15 @@ int get_itimerspec64(struct itimerspec64 *it,
 int put_itimerspec64(const struct itimerspec64 *it,
 			struct itimerspec __user *uit);
 
+static inline int timeval_compare(const struct timeval *lhs, const struct timeval *rhs)
+{
+	if (lhs->tv_sec < rhs->tv_sec)
+		return -1;
+	if (lhs->tv_sec > rhs->tv_sec)
+		return 1;
+	return lhs->tv_usec - rhs->tv_usec;
+}
+
 extern time64_t mktime64(const unsigned int year, const unsigned int mon,
 			const unsigned int day, const unsigned int hour,
 			const unsigned int min, const unsigned int sec);
