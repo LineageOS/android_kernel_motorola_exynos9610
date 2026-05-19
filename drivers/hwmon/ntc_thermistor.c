@@ -564,7 +564,7 @@ static ssize_t ntc_show_temp(struct device *dev,
 	return sprintf(buf, "%d\n", get_temp_mc(data, ohm));
 }
 
-int ntc_show_batt_temp()
+int ntc_show_batt_temp(void)
 {
 	int ohm;
 	int temp;
