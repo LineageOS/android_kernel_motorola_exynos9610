@@ -20,9 +20,7 @@ obj-$(CONFIG_TLS)		+= tls/
 obj-$(CONFIG_XFRM)		+= xfrm/
 obj-$(CONFIG_UNIX_SCM)		+= unix/
 obj-$(CONFIG_NET)		+= ipv6/
-ifneq ($(CC_CAN_LINK),y)
-$(warning CC cannot link executables. Skipping bpfilter.)
-else
+ifeq ($(CC_CAN_LINK),y)
 obj-$(CONFIG_BPFILTER)		+= bpfilter/
 endif
 obj-$(CONFIG_PACKET)		+= packet/
