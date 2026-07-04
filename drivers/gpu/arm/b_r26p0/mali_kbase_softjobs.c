@@ -384,13 +384,13 @@ static void kbase_fence_debug_timeout(struct kbase_jd_atom *katom)
 }
 #endif /* CONFIG_MALI_FENCE_DEBUG */
 
-#if KERNEL_VERSION(4, 15, 0) <= LINUX_VERSION_CODE
+#if KERNEL_VERSION(4, 14, 0) <= LINUX_VERSION_CODE
 void kbasep_soft_job_timeout_worker(struct timer_list *timer)
 #else
 void kbasep_soft_job_timeout_worker(unsigned long data)
 #endif
 {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
 	    struct timer_list *timer = (struct timer_list *)data;
 #endif
 
